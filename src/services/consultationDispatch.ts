@@ -270,12 +270,13 @@ export function dispatchConsultation(
             paymentStatus: "Payment Pending",
             indication: record.summary || record.diagnosis || "Doctor Consultation Order",
             technique: `Diagnostic ${modality} imaging scan`,
+            nurseVerified: false,
           })
         })
       }
 
-      // Route All Diagnostic Investigations (Lab + Radiology) to Central Billing Queue
-      if (labTests.length > 0) {
+      // Route Pure Lab Investigations to Central Billing Queue & Laboratory Worklist
+      if (pureLabTests.length > 0) {
         const order = LabOrderDatabase.createOrder({
           consultationId: record.id,
           encounterId: encounter.id,
@@ -290,7 +291,7 @@ export function dispatchConsultation(
           department: encounter.dept || doctor.specialty,
           diagnosis: record.diagnosis || encounter.diagnosis,
           clinicalNotes: record.summary,
-          tests: labTests,
+          tests: pureLabTests,
         })
         result.labOrderId = order.id
         result.labTotal = order.billing.total
@@ -335,11 +336,13 @@ export function dispatchConsultation(
         : labsStillToSend || medicinesStillToSend
           ? "Under Consultation"
           : "Consultation Completed",
-      furtherAction: labOrderId
+      furtherAction: (labOrderId || pureLabTests.length > 0)
         ? "Laboratory"
-        : prescriptionId
-          ? "Pharmacy"
-          : "None",
+        : radiologyTests.length > 0
+          ? "Radiology"
+          : prescriptionId
+            ? "Pharmacy"
+            : "None",
       timestamps: {
         ...encounter.timestamps,
         consultationEnd: new Date().toLocaleTimeString([], {

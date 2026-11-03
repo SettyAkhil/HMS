@@ -5112,7 +5112,7 @@ export class BillingDatabase {
             items.push({
               id: `ITEM-REG-${enc.id}`,
               description: `Patient Registration Fee – ₹${regFee}`,
-              category: "Procedure / Surgery",
+              category: "Registration",
               cptCode: "99201",
               quantity: 1,
               unitPrice: regFee,
@@ -7465,10 +7465,41 @@ export class BillingDatabase {
     if (this._cachedRadStudies && (now - this._radStudiesCacheTime < this.RAD_STUDIES_TTL)) {
       return this._cachedRadStudies
     }
-    const studies = this.load<RadiologyStudyRecord[]>(
+    const isGenuineRadInvoiceItem = (it: InvoiceItem): boolean => {
+      const cat = (it.category || "").toLowerCase().trim()
+      const desc = (it.description || "").toLowerCase().trim()
+      if (
+        cat === "consultation" ||
+        cat === "registration" ||
+        desc.includes("consultation") ||
+        desc.includes("registration fee") ||
+        desc.includes("patient registration") ||
+        desc.includes("physician") ||
+        desc.includes("doctor consultation")
+      ) {
+        return false
+      }
+      return it.category === "Radiology / Imaging" || isRadiologyTest(it.description, it.category)
+    }
+
+    const loadedStudies = this.load<RadiologyStudyRecord[]>(
       STORAGE_KEY_RAD_STUDIES,
       INITIAL_RAD_STUDIES,
     )
+
+    // Sanitize and purge any invalid non-radiology studies (e.g. consultation fee records) from store
+    const studies = loadedStudies.filter((s) => {
+      const name = (s.study || "").toLowerCase().trim()
+      return (
+        !name.includes("consultation") &&
+        !name.includes("registration fee") &&
+        !name.includes("patient registration") &&
+        isRadiologyTest(s.study, (s as any).modality)
+      )
+    })
+    if (studies.length !== loadedStudies.length) {
+      this.save(STORAGE_KEY_RAD_STUDIES, studies)
+    }
 
     INITIAL_RAD_STUDIES.forEach((initS) => {
       if (!studies.some((s) => s.id === initS.id)) {
@@ -7481,19 +7512,7 @@ export class BillingDatabase {
     const syncedStudies = [...studies]
 
     claims.forEach((claim) => {
-      const radItems = claim.items.filter(
-        (it) =>
-          it.category === "Radiology / Imaging" ||
-          it.description.toLowerCase().includes("x-ray") ||
-          it.description.toLowerCase().includes("xray") ||
-          it.description.toLowerCase().includes("ct") ||
-          it.description.toLowerCase().includes("mri") ||
-          it.description.toLowerCase().includes("ultrasound") ||
-          it.description.toLowerCase().includes("usg") ||
-          it.description.toLowerCase().includes("echo") ||
-          it.description.toLowerCase().includes("dexa") ||
-          it.description.toLowerCase().includes("scan"),
-      )
+      const radItems = claim.items.filter(isGenuineRadInvoiceItem)
 
       if (radItems.length > 0) {
         const isPaid = claim.status === "Paid" || claim.balanceDue === 0
@@ -7577,6 +7596,11 @@ export class BillingDatabase {
             })),
           }
         } else {
+          // Never fabricate radiology studies from auto-synced OP encounter registration claims
+          if (claim.id?.startsWith("CLM-ENC-") || !isRadiologyTest(radItems[0].description, radItems[0].category)) {
+            return
+          }
+
           const studySummary = radItems.map((it) => it.description).join(" + ")
 
           const totalRadPrice = radItems.reduce(
@@ -7670,19 +7694,7 @@ export class BillingDatabase {
     const deptChargesRad = this.getDepartmentCharges()
 
     deptChargesRad.forEach((dept) => {
-      const radItems = (dept.items || []).filter(
-        (it) =>
-          it.category === "Radiology / Imaging" ||
-          it.description.toLowerCase().includes("x-ray") ||
-          it.description.toLowerCase().includes("xray") ||
-          it.description.toLowerCase().includes("ct") ||
-          it.description.toLowerCase().includes("mri") ||
-          it.description.toLowerCase().includes("ultrasound") ||
-          it.description.toLowerCase().includes("usg") ||
-          it.description.toLowerCase().includes("echo") ||
-          it.description.toLowerCase().includes("dexa") ||
-          it.description.toLowerCase().includes("scan"),
-      )
+      const radItems = (dept.items || []).filter(isGenuineRadInvoiceItem)
 
       if (radItems.length > 0) {
         const targetName = (dept.patientName || "").toLowerCase().trim()
@@ -7713,6 +7725,11 @@ export class BillingDatabase {
         })
 
         if (existingIdx < 0) {
+          // Never fabricate radiology studies from OP consultation charges
+          if (dept.id?.startsWith("OP-IT-") || !isRadiologyTest(radItems[0].description, radItems[0].category)) {
+            return
+          }
+
           const studySummary = radItems.map((it) => it.description).join(" + ")
 
           const totalRadPrice = radItems.reduce(
@@ -7799,6 +7816,17 @@ export class BillingDatabase {
     const seenStudyKeys = new Set<string>()
     const deduplicatedStudies: RadiologyStudyRecord[] = []
     for (const s of syncedStudies) {
+      // Strictly exclude invalid non-radiology studies (e.g. consultation fee records)
+      const sName = (s.study || "").toLowerCase().trim()
+      if (
+        sName.includes("consultation") ||
+        sName.includes("registration fee") ||
+        sName.includes("patient registration") ||
+        !isRadiologyTest(s.study, (s as any).modality)
+      ) {
+        continue
+      }
+
       if (s.study === "Diagnostic Imaging Study") {
         const hasSpecificStudy = syncedStudies.some(
           (other) =>

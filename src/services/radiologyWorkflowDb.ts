@@ -19,6 +19,7 @@ import { AuditDatabase } from "./auditDb"
 import { LabOrderDatabase } from "./labOrdersDb"
 import { RadiologyTemplateDatabase, convertHtmlToFormattedText } from "./radiologyTemplateDb"
 import { INITIAL_RADIOLOGY_TARIFFS } from "./radiologyTariffsData"
+import { isRadiologyTest } from "../utils/testClassifier"
 
 export interface RadiologyActionLog {
   timestamp: string
@@ -444,10 +445,20 @@ export class RadiologyWorkflowDb {
       }
 
       // 3. Transform and pre-calculate all study properties in a single pass
-      const result: ExtendedRadiologyRecord[] = new Array(raw.length)
+      const validRaw = raw.filter((s) => {
+        const name = (s.study || "").toLowerCase().trim()
+        return (
+          !name.includes("consultation") &&
+          !name.includes("registration fee") &&
+          !name.includes("patient registration") &&
+          isRadiologyTest(s.study, (s as any).modality)
+        )
+      })
 
-      for (let i = 0; i < raw.length; i++) {
-        const study = raw[i]
+      const result: ExtendedRadiologyRecord[] = new Array(validRaw.length)
+
+      for (let i = 0; i < validRaw.length; i++) {
+        const study = validRaw[i]
         const ext = study as ExtendedRadiologyRecord
 
         // Check if study is paid - AUTHORITATIVE ITEM & INVOICE LEVEL CHECK

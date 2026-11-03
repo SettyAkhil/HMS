@@ -5,6 +5,31 @@
 import { priceForTest } from "../services/labOrdersDb"
 
 export function isRadiologyTest(testName: string, category?: string): boolean {
+  const name = (testName || "").toLowerCase().trim()
+  if (!name) return false
+
+  // Absolute exclusions: Administrative, registration, consultation, bed, room, non-imaging services
+  if (
+    name.includes("consultation") ||
+    name.includes("registration fee") ||
+    name.includes("patient registration") ||
+    name.includes("triage fee") ||
+    name.includes("physician") ||
+    name.includes("admin fee") ||
+    name.includes("bed charge") ||
+    name.includes("room charge") ||
+    name.includes("nursing charge") ||
+    name.includes("pharmacy") ||
+    name.includes("prescription") ||
+    name.includes("contracture") ||
+    name.includes("traction") ||
+    name.includes("extraction") ||
+    name.includes("resection") ||
+    name.includes("suture")
+  ) {
+    return false
+  }
+
   if (category) {
     const c = category.trim().toUpperCase()
     if (
@@ -19,9 +44,6 @@ export function isRadiologyTest(testName: string, category?: string): boolean {
       return true
     }
   }
-
-  const name = (testName || "").toLowerCase().trim()
-  if (!name) return false
 
   const keywords = [
     "x-ray", "xray", "x ray", "radiograph", "radiography",

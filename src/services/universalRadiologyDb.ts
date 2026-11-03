@@ -229,6 +229,11 @@ export const isPaidOrClearedStudy = (s: ExtendedRadiologyRecord): boolean => {
     return false
   }
 
+  // 1b. Exclude unverified doctor orders (unless authorized exception is present)
+  if (s.nurseVerified === false && !s.authorizedException) {
+    return false
+  }
+
   // 2. Exclude billing discrepancy
   if (s.hasBillingDiscrepancy) {
     return false

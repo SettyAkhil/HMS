@@ -48,7 +48,7 @@ export interface RadiologyAppointment {
   updatedAt: string
 }
 
-export type SuiteOperationalStatus = "Available" | "In Use" | "Maintenance" | "Out of Service"
+export type SuiteOperationalStatus = "Available" | "In Use" | "Maintenance" | "Offline" | "Out of Service"
 
 export interface RadiologySuite {
   id: string
@@ -58,6 +58,9 @@ export interface RadiologySuite {
   modality: string
   status: SuiteOperationalStatus
   currentStudyId?: string
+  currentPatient?: string
+  currentStudyName?: string
+  utilization?: string
   notes?: string
   maintenanceExpectedUntil?: string
 }
@@ -97,6 +100,8 @@ export interface RadiologyAuditEvent {
   timestamp: string
   studyId?: string
   patientName?: string
+  umr?: string
+  studyName?: string
   action: string
   actor: string
   role: string
@@ -111,31 +116,40 @@ const STORAGE_KEY_AUDIT = "hospai_rad_audit_v1"
 const RAD_CHANNEL = "hospai_universal_radiology_channel"
 
 const INITIAL_SUITES: RadiologySuite[] = [
-  { id: "suite_xr_1", code: "XR-01", name: "Digital X-Ray Suite 1", room: "Room 101", modality: "X-Ray", status: "Available" },
-  { id: "suite_xr_2", code: "XR-02", name: "Digital X-Ray Suite 2", room: "Room 102", modality: "X-Ray", status: "Available" },
-  { id: "suite_ct_1", code: "CT-01", name: "64-Slice High-Speed CT", room: "CT Gantry 1", modality: "CT Scan", status: "In Use" },
-  { id: "suite_ct_2", code: "CT-02", name: "128-Slice Dual-Source CT", room: "CT Gantry 2", modality: "CT Scan", status: "Available" },
-  { id: "suite_mr_1", code: "MR-01", name: "3.0T High-Field MRI", room: "MRI Suite 1", modality: "MRI", status: "Available" },
-  { id: "suite_us_1", code: "US-01", name: "4D Color Ultrasound Suite", room: "USG Room A", modality: "Ultrasound (USG)", status: "Available" },
-  { id: "suite_dop_1", code: "DOP-01", name: "Vascular Doppler Suite", room: "USG Room B", modality: "Doppler", status: "Available" },
-  { id: "suite_mam_1", code: "MAM-01", name: "Digital Breast Tomosynthesis", room: "Mammo Suite", modality: "Mammography", status: "Available" },
-  { id: "suite_fl_1", code: "FL-01", name: "Digital Fluoroscopy & Contrast", room: "Room 105", modality: "Fluoroscopy / Contrast", status: "Available" },
-  { id: "suite_nm_1", code: "NM-01", name: "PET-CT & SPECT Imaging", room: "Nuclear Med Bay", modality: "Nuclear Medicine", status: "Available" },
-  { id: "suite_dexa_1", code: "DEXA-01", name: "Bone Densitometry Unit", room: "DEXA Lab", modality: "DEXA", status: "Available" },
-  { id: "suite_dnt_1", code: "DNT-01", name: "Dental CBCT / OPG Suite", room: "Dental X-Ray", modality: "Dental", status: "Available" },
-  { id: "suite_ir_1", code: "IR-01", name: "Interventional Angio / Cath Suite", room: "Cath Lab 2", modality: "Interventional Radiology", status: "Available" },
+  { id: "suite_xr_1", code: "XR-01", name: "Digital X-Ray Suite 1", room: "Room 101", modality: "X-Ray", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_xr_2", code: "XR-02", name: "Digital X-Ray Suite 2", room: "Room 102", modality: "X-Ray", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_ct_1", code: "CT-01", name: "64-Slice High-Speed CT", room: "CT Gantry 1", modality: "CT Scan", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_ct_2", code: "CT-02", name: "128-Slice Dual-Source CT", room: "CT Gantry 2", modality: "CT Scan", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_mr_1", code: "MR-01", name: "3.0T High-Field MRI", room: "MRI Suite 1", modality: "MRI", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_us_1", code: "US-01", name: "4D Color Ultrasound Suite", room: "USG Room A", modality: "Ultrasound (USG)", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_dop_1", code: "DOP-01", name: "Vascular Doppler Suite", room: "USG Room B", modality: "Doppler", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_mam_1", code: "MAM-01", name: "Digital Breast Tomosynthesis", room: "Mammo Suite", modality: "Mammography", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_fl_1", code: "FL-01", name: "Digital Fluoroscopy & Contrast", room: "Room 105", modality: "Fluoroscopy / Contrast", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_nm_1", code: "NM-01", name: "PET-CT & SPECT Imaging", room: "Nuclear Med Bay", modality: "Nuclear Medicine", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_dexa_1", code: "DEXA-01", name: "Bone Densitometry Unit", room: "DEXA Lab", modality: "DEXA", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_dnt_1", code: "DNT-01", name: "Dental CBCT / OPG Suite", room: "Dental X-Ray", modality: "Dental", status: "Available", utilization: "Ready for Next Patient" },
+  { id: "suite_ir_1", code: "IR-01", name: "Interventional Angio / Cath Suite", room: "Cath Lab 2", modality: "Interventional Radiology", status: "Available", utilization: "Ready for Next Patient" },
 ]
 
 export class UniversalRadiologyDb {
   private static listeners: Set<() => void> = new Set()
   private static channel: BroadcastChannel | null = null
+  private static channel2: BroadcastChannel | null = null
 
   private static initChannel() {
-    if (typeof window === "undefined" || this.channel) return
-    try {
-      this.channel = new BroadcastChannel(RAD_CHANNEL)
-      this.channel.onmessage = () => this.notify()
-    } catch {}
+    if (typeof window === "undefined") return
+    if (!this.channel) {
+      try {
+        this.channel = new BroadcastChannel(RAD_CHANNEL)
+        this.channel.onmessage = () => this.notify(false)
+      } catch {}
+    }
+    if (!this.channel2) {
+      try {
+        this.channel2 = new BroadcastChannel("hospai_rad_channel")
+        this.channel2.onmessage = () => this.notify(false)
+      } catch {}
+    }
   }
 
   public static subscribe(fn: () => void): () => void {
@@ -144,21 +158,89 @@ export class UniversalRadiologyDb {
     return () => this.listeners.delete(fn)
   }
 
-  private static notify() {
-    this.listeners.forEach((fn) => fn())
-    try {
-      this.channel?.postMessage("refresh")
-    } catch {}
+  public static notify(broadcast = true) {
+    this.listeners.forEach((fn) => {
+      try { fn() } catch {}
+    })
+    if (broadcast) {
+      try { this.channel?.postMessage("refresh") } catch {}
+      try { this.channel2?.postMessage("refresh") } catch {}
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("hospai_rad_updated"))
+      }
+    }
   }
 
   // ── Equipment Suites ──────────────────────────────────────────────────────────
   public static getSuites(): RadiologySuite[] {
+    let rawSuites: RadiologySuite[] = []
     try {
       const data = localStorage.getItem(STORAGE_KEY_SUITES)
-      if (data) return JSON.parse(data)
+      if (data) rawSuites = JSON.parse(data)
     } catch {}
-    this.saveSuites(INITIAL_SUITES)
-    return INITIAL_SUITES
+
+    if (!rawSuites || rawSuites.length === 0) {
+      rawSuites = INITIAL_SUITES
+      this.saveSuites(rawSuites)
+    }
+
+    // Reconcile dynamically with actual active scanning examinations in RadiologyWorkflowDb
+    const activeStudies = RadiologyWorkflowDb.getStudies().filter((s) => {
+      if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return false
+      const status = s.normalizedStatus || s.status
+      return (
+        status === "IN PROGRESS" ||
+        status === "In Progress" ||
+        (s as any).scanningStage === 2 ||
+        (s as any).workflowStatus === "IN_PROGRESS"
+      ) && status !== "DONE"
+    })
+
+    const updated = rawSuites.map((suite) => {
+      // Respect persisted maintenance and offline equipment statuses
+      if (suite.status === "Maintenance" || suite.status === "Offline" || suite.status === "Out of Service") {
+        return {
+          ...suite,
+          utilization: suite.status === "Maintenance" ? "Scheduled Maintenance" : "Equipment Offline / Unserviceable",
+        }
+      }
+
+      // Check if any actively scanning study is mapped to this suite
+      const occupyingStudy = activeStudies.find(
+        (s) =>
+          (s as any).suiteId === suite.id ||
+          (s.room &&
+            (s.room.toLowerCase() === suite.room.toLowerCase() ||
+             s.room.toLowerCase() === suite.code.toLowerCase() ||
+             s.room.toLowerCase() === suite.name.toLowerCase()))
+      ) || activeStudies.find((s) => {
+        // Fallback match by modality if study room isn't explicit
+        const mod = getCanonicalRadiologyModality(s)
+        return mod === suite.modality && !activeStudies.some(o => (o as any).suiteId === suite.id)
+      })
+
+      if (occupyingStudy) {
+        return {
+          ...suite,
+          status: "In Use" as SuiteOperationalStatus,
+          currentStudyId: occupyingStudy.id,
+          currentPatient: occupyingStudy.patient,
+          currentStudyName: occupyingStudy.study,
+          utilization: `Active Scan: ${occupyingStudy.patient} (${occupyingStudy.study})`,
+        }
+      }
+
+      return {
+        ...suite,
+        status: "Available" as SuiteOperationalStatus,
+        currentStudyId: undefined,
+        currentPatient: undefined,
+        currentStudyName: undefined,
+        utilization: "Ready for Next Patient",
+      }
+    })
+
+    return updated
   }
 
   public static saveSuites(suites: RadiologySuite[]): void {
@@ -168,10 +250,57 @@ export class UniversalRadiologyDb {
     } catch {}
   }
 
+  public static occupySuiteForStudy(studyId: string, roomOrModality?: string): void {
+    try {
+      const suites = this.getSuites().map((s) => {
+        const match =
+          s.currentStudyId === studyId ||
+          (roomOrModality &&
+            (s.room.toLowerCase() === roomOrModality.toLowerCase() ||
+             s.code.toLowerCase() === roomOrModality.toLowerCase() ||
+             s.name.toLowerCase() === roomOrModality.toLowerCase() ||
+             s.modality.toLowerCase() === roomOrModality.toLowerCase()))
+        if (match && s.status !== "Maintenance" && s.status !== "Offline" && s.status !== "Out of Service") {
+          return {
+            ...s,
+            status: "In Use" as SuiteOperationalStatus,
+            currentStudyId: studyId,
+          }
+        }
+        return s
+      })
+      this.saveSuites(suites)
+    } catch {}
+  }
+
+  public static releaseSuiteForStudy(studyId: string): void {
+    try {
+      const suites = this.getSuites().map((s) => {
+        if (s.currentStudyId === studyId && s.status !== "Maintenance" && s.status !== "Offline" && s.status !== "Out of Service") {
+          return {
+            ...s,
+            status: "Available" as SuiteOperationalStatus,
+            currentStudyId: undefined,
+            currentPatient: undefined,
+            currentStudyName: undefined,
+            utilization: "Ready for Next Patient",
+          }
+        }
+        return s
+      })
+      this.saveSuites(suites)
+    } catch {}
+  }
+
   public static updateSuiteStatus(id: string, status: SuiteOperationalStatus, notes?: string): void {
     const suites = this.getSuites().map((s) => {
       if (s.id === id) {
-        return { ...s, status, notes: notes !== undefined ? notes : s.notes }
+        return {
+          ...s,
+          status,
+          notes: notes !== undefined ? notes : s.notes,
+          utilization: status === "Available" ? "Ready for Next Patient" : status === "Maintenance" ? "Scheduled Maintenance" : status === "Offline" ? "Equipment Offline" : s.utilization
+        }
       }
       return s
     })
@@ -251,10 +380,20 @@ export class UniversalRadiologyDb {
   public static getExceptions(): RadiologyException[] {
     try {
       const data = localStorage.getItem(STORAGE_KEY_EXCEPTIONS)
-      if (data) return JSON.parse(data)
+      if (data) {
+        const stored: RadiologyException[] = JSON.parse(data)
+        const derived = this.deriveExceptionsFromLiveStudies()
+        // Merge derived with stored, resolving those whose underlying condition disappeared
+        const merged = [...stored]
+        derived.forEach((d) => {
+          if (!merged.some((m) => m.id === d.id || (m.studyId === d.studyId && m.category === d.category))) {
+            merged.push(d)
+          }
+        })
+        return merged
+      }
     } catch {}
 
-    // Auto-derive exceptions from unverified/incomplete or overdue studies
     const derived = this.deriveExceptionsFromLiveStudies()
     this.saveExceptions(derived)
     return derived
@@ -318,7 +457,10 @@ export class UniversalRadiologyDb {
     const studies = RadiologyWorkflowDb.getStudies()
 
     studies.forEach((s) => {
-      if (s.priority === "STAT" && !s.isPaid && s.billingStatus !== "Authorized Exception") {
+      if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return
+
+      // 1. STAT priority with unverified / unpaid billing
+      if (s.priority === "STAT" && !s.isPaid && s.paymentStatus !== "Paid" && s.billingStatus !== "Authorized Exception") {
         exceptions.push({
           id: `EX-STAT-${s.id}`,
           category: "Billing Status Inconsistency",
@@ -333,7 +475,8 @@ export class UniversalRadiologyDb {
         })
       }
 
-      if (s.hasBillingDiscrepancy || (s.normalizedStatus === "DONE" && !s.isPaid && s.billingStatus !== "Authorized Exception")) {
+      // 2. Scan completed with billing discrepancy
+      if (s.hasBillingDiscrepancy || (s.normalizedStatus === "DONE" && !s.isPaid && s.paymentStatus !== "Paid" && s.billingStatus !== "Authorized Exception")) {
         exceptions.push({
           id: `EX-DISCREPANCY-${s.id}`,
           category: "Billing Status Inconsistency",
@@ -348,9 +491,28 @@ export class UniversalRadiologyDb {
         })
       }
 
-      if (s.normalizedStatus === "DONE" && s.normalizedReportStatus === "Awaiting Report") {
+      // 3. Incomplete examination or interrupted scan
+      if ((s as any).isIncomplete || (s as any).scanningInterrupted || (s as any).workflowStatus === "INCOMPLETE") {
+        exceptions.push({
+          id: `EX-INCOMPLETE-${s.id}`,
+          category: "Incomplete Examination",
+          severity: "High",
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          description: `Scanning procedure for "${s.study}" was interrupted or flagged incomplete before protocol completion. Staff attention required.`,
+          timestamp: s.completedAt || s.ordered || new Date().toISOString(),
+          assignedOwner: s.technician || "Senior Radiologic Technologist",
+          status: "Open"
+        })
+      }
+
+      // 4. Report Overdue (>24 hours since scan completion)
+      if (s.normalizedStatus === "DONE" && s.normalizedReportStatus !== "Finalized") {
+        const compTime = s.completedAt || s.scanningCompletedAt ? new Date(s.completedAt || s.scanningCompletedAt!).getTime() : 0
         const orderTime = new Date(s.ordered || Date.now()).getTime()
-        const hoursAgo = (Date.now() - orderTime) / (1000 * 60 * 60)
+        const effectiveTime = compTime > 0 ? compTime : orderTime
+        const hoursAgo = (Date.now() - effectiveTime) / (1000 * 60 * 60)
         if (hoursAgo > 24) {
           exceptions.push({
             id: `EX-TAT-${s.id}`,
@@ -366,6 +528,22 @@ export class UniversalRadiologyDb {
           })
         }
       }
+
+      // 5. Missing Patient Linkage
+      if (!s.patient || !s.umr) {
+        exceptions.push({
+          id: `EX-MISSING-PATIENT-${s.id}`,
+          category: "Missing Patient Linkage",
+          severity: "Critical",
+          studyId: s.id,
+          patientName: s.patient || "Unknown Patient",
+          umr: s.umr || "UNKNOWN",
+          description: `Radiology examination record "${s.study || s.id}" has missing or unlinked patient demographic identification.`,
+          timestamp: s.ordered || new Date().toISOString(),
+          assignedOwner: "Radiology Reception / Medical Records",
+          status: "Open"
+        })
+      }
     })
 
     return exceptions
@@ -373,28 +551,145 @@ export class UniversalRadiologyDb {
 
   // ── Audit Events ──────────────────────────────────────────────────────────────
   public static getAuditEvents(): RadiologyAuditEvent[] {
+    let list: RadiologyAuditEvent[] = []
     try {
       const data = localStorage.getItem(STORAGE_KEY_AUDIT)
-      if (data) {
-        const parsed: RadiologyAuditEvent[] = JSON.parse(data)
-        return parsed.sort((a, b) => {
-          const timeA = new Date(a.timestamp || 0).getTime()
-          const timeB = new Date(b.timestamp || 0).getTime()
-          if (timeA !== timeB) return timeB - timeA // Latest department activity first
-          return (b.id || "").localeCompare(a.id || "")
+      if (data) list = JSON.parse(data)
+    } catch {}
+
+    const studies = RadiologyWorkflowDb.getStudies()
+    const synthesized: RadiologyAuditEvent[] = []
+
+    studies.forEach((s) => {
+      if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return
+
+      // 1. Examination Order Created
+      const orderTs = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
+      if (orderTs > 0) {
+        synthesized.push({
+          id: `AUD-ORD-${s.id}`,
+          timestamp: new Date(orderTs).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Examination Order Created",
+          actor: s.provider || "Attending Physician",
+          role: "Physician",
+          details: `Order created for ${s.study} [${s.modality || "Imaging"}] · Patient: ${s.patient} (${s.umr})`,
         })
       }
-    } catch {}
-    return [
-      {
-        id: "AUD-INIT-01",
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        action: "Department System Initialized",
-        actor: "System Administrator",
-        role: "SuperAdmin",
-        details: "Universal Radiology Center active with 11 standardized clinical modalities."
+
+      // 2. Billing Cleared
+      if ((s.isPaid || s.paymentStatus === "Paid") && (s.paidAt || s.billingClearedAt)) {
+        synthesized.push({
+          id: `AUD-PAY-${s.id}`,
+          timestamp: new Date(s.paidAt || s.billingClearedAt || orderTs).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Billing Cleared",
+          actor: s.billedBy || "Cashier / Billing Desk",
+          role: "Billing Officer",
+          details: `Billing clearance confirmed for ${s.study}. Receipt: ${s.paidReceiptNo || s.invoiceNo || "CLEARED"}`,
+        })
       }
-    ]
+
+      // 3. Scanning Started
+      if (s.scanningStartedAt || s.scanStartedAt) {
+        synthesized.push({
+          id: `AUD-SCAN-START-${s.id}`,
+          timestamp: new Date(s.scanningStartedAt || s.scanStartedAt!).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Scanning Started",
+          actor: s.technician || "Radiology Technologist",
+          role: "Senior Technologist",
+          details: `Scan acquisition initiated in ${s.room || "Scan Suite"} for ${s.patient}`,
+        })
+      }
+
+      // 4. Scanning Completed
+      if (s.scanningCompletedAt || s.completedAt || s.normalizedStatus === "DONE") {
+        synthesized.push({
+          id: `AUD-SCAN-DONE-${s.id}`,
+          timestamp: new Date(s.scanningCompletedAt || s.completedAt || orderTs).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Scanning Completed",
+          actor: s.technician || "Radiology Technologist",
+          role: "Senior Technologist",
+          details: `Diagnostic imaging completed for ${s.study}. DICOM images ingested.`,
+        })
+      }
+
+      // 5. Sent to Reporting Workspace
+      if (s.transferredToReportingAt || (s as any).transferredToReporting) {
+        synthesized.push({
+          id: `AUD-TRANS-${s.id}`,
+          timestamp: new Date(s.transferredToReportingAt || s.completedAt || orderTs).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Sent to Reporting Workspace",
+          actor: s.technician || "Radiology Technologist",
+          role: "Senior Technologist",
+          details: `${s.study} dispatched to Radiologist diagnostic reporting workspace`,
+        })
+      }
+
+      // 6. Report Draft Saved
+      if (s.reportCreatedAt || (s as any).reportDraftSavedAt || s.normalizedReportStatus === "Draft") {
+        synthesized.push({
+          id: `AUD-DRAFT-${s.id}`,
+          timestamp: new Date(s.reportCreatedAt || (s as any).reportDraftSavedAt || orderTs).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Report Draft Saved",
+          actor: s.radiologist || "Consultant Radiologist",
+          role: "Radiologist",
+          details: `Diagnostic report draft saved with anatomical section findings for ${s.patient}`,
+        })
+      }
+
+      // 7. Report Finalized
+      if (s.finalizedAt || s.normalizedReportStatus === "Finalized") {
+        synthesized.push({
+          id: `AUD-FINAL-${s.id}`,
+          timestamp: new Date(s.finalizedAt || orderTs).toISOString(),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Report Finalized",
+          actor: s.finalizedBy || s.radiologist || "Dr. Rajesh Sharma, MD",
+          role: "Senior Radiologist",
+          details: `Report finalized and electronically signed. Available for patient and referring physician.`,
+        })
+      }
+    })
+
+    const merged = [...list]
+    synthesized.forEach((syn) => {
+      if (!merged.some((m) => m.id === syn.id || (m.studyId === syn.studyId && m.action === syn.action))) {
+        merged.push(syn)
+      }
+    })
+
+    return merged.sort((a, b) => {
+      const timeA = new Date(a.timestamp || 0).getTime()
+      const timeB = new Date(b.timestamp || 0).getTime()
+      if (timeA !== timeB) return timeB - timeA
+      return (b.id || "").localeCompare(a.id || "")
+    })
   }
 
   public static logAudit(event: Omit<RadiologyAuditEvent, "id" | "timestamp">): void {
@@ -414,7 +709,6 @@ export class UniversalRadiologyDb {
   // ── Analytics & KPI Engine ────────────────────────────────────────────────────
   public static getDepartmentAnalytics(dateRange: "today" | "7days" | "30days" = "7days") {
     const allStudies = RadiologyWorkflowDb.getStudies()
-    const appointments = this.getAppointments()
     const exceptions = this.getExceptions()
     const suites = this.getSuites()
 
@@ -428,22 +722,24 @@ export class UniversalRadiologyDb {
 
     // Filter studies strictly within the selected date range using actual persisted order creation timestamp
     const studies = allStudies.filter((s) => {
+      if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return false
       const ts = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
       return ts >= cutoff || ts === 0
     })
 
     const totalStudies = studies.length
-    const completedStudies = studies.filter((s) => s.normalizedStatus === "DONE").length
-    const finalizedReports = studies.filter((s) => s.normalizedReportStatus === "Finalized").length
-    const draftReports = studies.filter((s) => s.normalizedReportStatus === "Draft").length
-    const awaitingReports = studies.filter((s) => s.normalizedStatus === "DONE" && s.normalizedReportStatus === "Awaiting Report").length
-    const inProgressScanning = studies.filter((s) => s.normalizedStatus === "IN PROGRESS").length
+    const completedStudies = studies.filter((s) => s.normalizedStatus === "DONE" || (s as any).workflowStatus === "COMPLETED" || (s as any).scanningStage === 3).length
+    const finalizedReports = studies.filter((s) => s.normalizedReportStatus === "Finalized" || s.reportStatus === "Finalized" || !!s.finalizedAt).length
+    const draftReports = studies.filter((s) => (s.normalizedReportStatus === "Draft" || (s as any).reportStatus === "Draft" || !!s.hasDraft) && s.normalizedReportStatus !== "Finalized").length
+    const awaitingReports = studies.filter((s) => (s.normalizedStatus === "DONE" || (s as any).workflowStatus === "COMPLETED" || (s as any).scanningStage === 3 || !!s.transferredToReportingAt) && s.normalizedReportStatus === "Awaiting Report" && !s.hasDraft).length
+    const inProgressScanning = studies.filter((s) => (s.normalizedStatus === "IN PROGRESS" || s.status === "In Progress" || (s as any).scanningStage === 2) && s.normalizedStatus !== "DONE").length
     const openExceptions = exceptions.filter((e) => e.status !== "Resolved").length
 
     // Modality breakdown for studies in this date range
     const modalityCounts: Record<string, number> = {}
     RADIOLOGY_MODALITIES.forEach((m) => { modalityCounts[m] = 0 })
     studies.forEach((s) => {
+      if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return
       const matched = getCanonicalRadiologyModality(s)
       modalityCounts[matched] = (modalityCounts[matched] || 0) + 1
     })
@@ -456,12 +752,16 @@ export class UniversalRadiologyDb {
     const totalTatMinutesList: number[] = []
 
     studies.forEach((s) => {
+      if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return
+
       const orderTs = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
+      const scanStartTs = s.scanningStartedAt || s.scanStartedAt ? new Date(s.scanningStartedAt || s.scanStartedAt!).getTime() : 0
       const scanCompletedTs = s.scanningCompletedAt || s.completedAt ? new Date(s.scanningCompletedAt || s.completedAt!).getTime() : 0
       const finalizedTs = s.finalizedAt ? new Date(s.finalizedAt).getTime() : 0
 
-      if (orderTs > 0 && scanCompletedTs > orderTs) {
-        const diffMins = Math.round((scanCompletedTs - orderTs) / (1000 * 60))
+      const effectiveScanStart = scanStartTs > 0 ? scanStartTs : scanCompletedTs
+      if (orderTs > 0 && effectiveScanStart > orderTs) {
+        const diffMins = Math.round((effectiveScanStart - orderTs) / (1000 * 60))
         if (diffMins > 0 && diffMins < 1440 * 7) {
           totalOrderToScanMinutes += diffMins
           countOrderToScan++
@@ -484,12 +784,11 @@ export class UniversalRadiologyDb {
       }
     })
 
-    const avgOrderToScanMinutes = countOrderToScan > 0 ? Math.round(totalOrderToScanMinutes / countOrderToScan) : 45
-    const avgScanToReportMinutes = countScanToReport > 0 ? Math.round(totalScanToReportMinutes / countScanToReport) : 110
+    const avgOrderToScanMinutes = countOrderToScan > 0 ? Math.round(totalOrderToScanMinutes / countOrderToScan) : 0
+    const avgScanToReportMinutes = countScanToReport > 0 ? Math.round(totalScanToReportMinutes / countScanToReport) : 0
     const overallTatMinutes = avgOrderToScanMinutes + avgScanToReportMinutes
 
     // Chronological date-based throughput distribution:
-    // Group examinations by day, sorted chronologically from oldest to newest
     const daysCount = dateRange === "today" ? 1 : dateRange === "7days" ? 7 : 30
     const chronologicalTrend: { date: string; label: string; count: number; completed: number; finalized: number }[] = []
 
@@ -515,12 +814,13 @@ export class UniversalRadiologyDb {
 
     // Median TAT
     totalTatMinutesList.sort((a, b) => a - b)
-    const medianMins = totalTatMinutesList.length > 0
-      ? totalTatMinutesList[Math.floor(totalTatMinutesList.length / 2)]
-      : 135
-    const medianTatHours = Math.floor(medianMins / 60)
-    const medianTatRemMins = medianMins % 60
-    const medianTatStr = medianTatHours > 0 ? `${medianTatHours}h ${medianTatRemMins}m` : `${medianTatRemMins} mins`
+    let medianTatStr = "—"
+    if (totalTatMinutesList.length > 0) {
+      const medianMins = totalTatMinutesList[Math.floor(totalTatMinutesList.length / 2)]
+      const medianTatHours = Math.floor(medianMins / 60)
+      const medianTatRemMins = medianMins % 60
+      medianTatStr = medianTatHours > 0 ? `${medianTatHours}h ${medianTatRemMins}m` : `${medianTatRemMins} mins`
+    }
 
     return {
       dateRange,
@@ -536,9 +836,9 @@ export class UniversalRadiologyDb {
       suitesInUse: suites.filter((s) => s.status === "In Use").length,
       suitesAvailable: suites.filter((s) => s.status === "Available").length,
       turnaroundTime: {
-        orderToScan: `${avgOrderToScanMinutes} mins`,
-        scanToReport: `${avgScanToReportMinutes} mins`,
-        overall: `${Math.round(overallTatMinutes / 60)}h ${overallTatMinutes % 60}m`,
+        orderToScan: countOrderToScan > 0 ? `${avgOrderToScanMinutes} mins` : "—",
+        scanToReport: countScanToReport > 0 ? `${avgScanToReportMinutes} mins` : "—",
+        overall: overallTatMinutes > 0 ? `${Math.round(overallTatMinutes / 60)}h ${overallTatMinutes % 60}m` : "—",
         medianTat: medianTatStr,
       }
     }
@@ -547,4 +847,3 @@ export class UniversalRadiologyDb {
 
 export const RadiologyDatabase = UniversalRadiologyDb
 export type RadiologyDatabase = UniversalRadiologyDb
-

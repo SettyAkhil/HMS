@@ -18,15 +18,14 @@ import {
 import { RadiologyWorkflowDb, ExtendedRadiologyRecord } from "../../services/radiologyWorkflowDb"
 import { UniversalRadiologyDb, RadiologySuite, RadiologyException } from "../../services/universalRadiologyDb"
 import { RADIOLOGY_MODALITIES } from "../../services/radiologyTariffsData"
+import { isPaidOrClearedStudy } from "./RadiologyOperationsView"
 
 interface RadiologyOverviewViewProps {
   onNavigateToView: (view: string, subParam?: string) => void
-  onOpenOrderModal: () => void
 }
 
 export default function RadiologyOverviewView({
   onNavigateToView,
-  onOpenOrderModal,
 }: RadiologyOverviewViewProps) {
   const [tick, setTick] = useState(0)
 
@@ -63,47 +62,109 @@ export default function RadiologyOverviewView({
     })
   }, [tick])
 
-  // Single-pass computation for summary counters
+  // Single-pass computation for summary counters from persisted records
   const summary = useMemo(() => {
     let todayOrders = 0
     let awaitingVerification = 0
     let readyToScan = 0
-    let inProgress = 0
-    let incomplete = 0
+    let inScanning = 0
     let awaitingReport = 0
     let drafts = 0
-    let awaitingFinalization = 0
     let finalized = 0
-    let openExceptions = 0
 
-    const todayDate = new Date().toISOString().split("T")[0]
+    const now = new Date()
+    const todayLocalYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+
+    const isCreatedToday = (s: ExtendedRadiologyRecord): boolean => {
+      if (s.orderDate && s.orderDate.slice(0, 10) === todayLocalYMD) return true
+      const ts = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
+      if (ts > 1000000000000) {
+        const d = new Date(ts)
+        const dYMD = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+        if (dYMD === todayLocalYMD) return true
+      }
+      if (s.ordered && s.ordered.length >= 10 && s.ordered.slice(0, 10) === todayLocalYMD) return true
+      return false
+    }
+
+    const isCancelled = (s: ExtendedRadiologyRecord) => {
+      const status = (s.status || "").toLowerCase()
+      const wStatus = ((s as any).workflowStatus || "").toLowerCase()
+      const bStatus = (s.billingStatus || "").toLowerCase()
+      const pStatus = (s.paymentStatus || "").toLowerCase()
+      return (
+        (s as any).isCancelled === true ||
+        status === "cancelled" ||
+        wStatus === "cancelled" ||
+        bStatus === "cancelled" ||
+        pStatus === "cancelled"
+      )
+    }
 
     studies.forEach((s) => {
-      todayOrders++
-      if (s.normalizedStatus === "ORDERED" && !s.nurseVerified) awaitingVerification++
-      if (s.normalizedStatus === "ORDERED" && (s.isPaid || s.billingStatus === "Authorized Exception")) readyToScan++
-      if (s.normalizedStatus === "IN PROGRESS") inProgress++
-      if (s.normalizedStatus === "DONE" && s.normalizedReportStatus === "Awaiting Report") awaitingReport++
-      if (s.normalizedReportStatus === "Draft") drafts++
-      if (s.normalizedReportStatus === "Finalized") finalized++
-      if ((s as any).isIncomplete) incomplete++
+      if (isCancelled(s)) return
+
+      if (isCreatedToday(s)) {
+        todayOrders++
+      }
+
+      if ((s.normalizedStatus === "ORDERED" || !s.normalizedStatus || s.status === "Pending") && !s.nurseVerified) {
+        awaitingVerification++
+      }
+
+      if (
+        isPaidOrClearedStudy(s) &&
+        (s.normalizedStatus === "ORDERED" || !s.normalizedStatus || s.status === "Scheduled") &&
+        s.normalizedStatus !== "IN PROGRESS" &&
+        s.normalizedStatus !== "DONE" &&
+        (s as any).scanningStage !== 2 &&
+        (s as any).scanningStage !== 3
+      ) {
+        readyToScan++
+      }
+
+      if (
+        (s.normalizedStatus === "IN PROGRESS" || s.status === "In Progress" || (s as any).scanningStage === 2) &&
+        s.normalizedStatus !== "DONE"
+      ) {
+        inScanning++
+      }
+
+      if (
+        (s.normalizedStatus === "DONE" || (s as any).scanningStage === 3 || !!s.sentToReporting) &&
+        (s.normalizedReportStatus === "Awaiting Report" || s.reportStatus === "Awaiting Report") &&
+        s.normalizedReportStatus !== "Draft" &&
+        s.normalizedReportStatus !== "Finalized" &&
+        !s.hasDraft
+      ) {
+        awaitingReport++
+      }
+
+      if (
+        (s.normalizedReportStatus === "Draft" || (s as any).reportStatus === "Draft" || !!s.hasDraft) &&
+        s.normalizedReportStatus !== "Finalized"
+      ) {
+        drafts++
+      }
+
+      if (s.normalizedReportStatus === "Finalized" || s.reportStatus === "Finalized" || !!s.finalizedAt) {
+        finalized++
+      }
     })
 
-    openExceptions = exceptions.filter((e) => e.status !== "Resolved").length
+    const availableSuites = suites.filter((s) => s.status === "Available").length
 
     return {
       todayOrders,
       awaitingVerification,
       readyToScan,
-      inProgress,
-      incomplete,
+      inScanning,
       awaitingReport,
       drafts,
-      awaitingFinalization: drafts,
       finalized,
-      openExceptions,
+      availableSuites,
     }
-  }, [studies, exceptions])
+  }, [studies, suites])
 
   return (
     <div className="space-y-6">
@@ -124,28 +185,19 @@ export default function RadiologyOverviewView({
             Real-time patient examination throughput, scanning suites availability, and clinical reporting queue.
           </p>
         </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={onOpenOrderModal}
-            className="bg-[#1B4FD8] hover:bg-[#1740B4] text-white px-4 py-2 rounded text-[13px] font-semibold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
-          >
-            <span>+</span> Order Investigation
-          </button>
-        </div>
       </div>
 
-      {/* ── 12 Critical Operational KPI Cards ── */}
+      {/* ── 11 Critical Operational KPI Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
         {[
           { label: "Today's Orders", count: summary.todayOrders, view: "worklist", color: "blue", icon: FileText },
           { label: "Verify Pending", count: summary.awaitingVerification, view: "worklist", filter: "verify", color: "amber", icon: AlertTriangle },
           { label: "Ready to Scan", count: summary.readyToScan, view: "worklist", filter: "ready", color: "emerald", icon: CheckCircle2 },
-          { label: "In Scanning", count: summary.inProgress, view: "operations", color: "indigo", icon: Play },
+          { label: "In Scanning", count: summary.inScanning, view: "operations", color: "indigo", icon: Play },
           { label: "Awaiting Report", count: summary.awaitingReport, view: "reporting", filter: "awaiting", color: "purple", icon: Clock },
           { label: "Report Drafts", count: summary.drafts, view: "reporting", filter: "drafts", color: "amber", icon: FileText },
           { label: "Finalized Reports", count: summary.finalized, view: "finalized", color: "emerald", icon: CheckCircle2 },
-          { label: "Active Suites", count: `${analytics.suitesInUse}/${suites.length}`, view: "operations", color: "slate", icon: Layers },
+          { label: "Active Suites", count: `${summary.availableSuites}/${suites.length}`, view: "operations", color: "slate", icon: Layers },
           { label: "Order → Scan TAT", count: analytics.turnaroundTime.orderToScan, view: "analytics", color: "blue", icon: Activity },
           { label: "Scan → Report TAT", count: analytics.turnaroundTime.scanToReport, view: "analytics", color: "purple", icon: Clock },
           { label: "Overall Median TAT", count: analytics.turnaroundTime.medianTat, view: "analytics", color: "emerald", icon: TrendingUp },
@@ -245,9 +297,13 @@ export default function RadiologyOverviewView({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {suites.slice(0, 9).map((suite) => (
-                <div key={suite.id} className="p-3 border rounded-md bg-[#F8FAFC] border-[#E2E8F0] flex flex-col justify-between">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[380px] overflow-y-auto pr-1">
+              {suites.map((suite) => (
+                <div
+                  key={suite.id}
+                  onClick={() => onNavigateToView("operations")}
+                  className="p-3 border rounded-md bg-[#F8FAFC] border-[#E2E8F0] hover:border-[#1B4FD8] hover:bg-slate-50 transition-all cursor-pointer flex flex-col justify-between"
+                >
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[10.5px] font-mono font-bold text-[#64748B]">{suite.code}</span>
@@ -257,7 +313,9 @@ export default function RadiologyOverviewView({
                             ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                             : suite.status === "In Use"
                             ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-amber-50 text-amber-700 border-amber-200"
+                            : suite.status === "Maintenance"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-red-50 text-red-700 border-red-200"
                         }`}
                       >
                         {suite.status}
@@ -266,6 +324,20 @@ export default function RadiologyOverviewView({
                     <div className="text-[12.5px] font-bold text-[#0F172A]">{suite.name}</div>
                     <div className="text-[11px] text-[#64748B]">{suite.room} • {suite.modality}</div>
                   </div>
+                  {suite.utilization && (
+                    <div className="mt-2 pt-1.5 border-t border-[#E2E8F0] flex items-center gap-1.5 text-[10.5px] text-[#475569]">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          suite.status === "In Use"
+                            ? "bg-blue-600 animate-pulse"
+                            : suite.status === "Available"
+                            ? "bg-emerald-500"
+                            : "bg-amber-500"
+                        }`}
+                      />
+                      <span className="truncate font-medium">{suite.utilization}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -292,27 +364,57 @@ export default function RadiologyOverviewView({
                 No unresolved exceptions detected. Department is operating normally.
               </div>
             ) : (
-              <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
                 {exceptions
                   .filter((e) => e.status !== "Resolved")
-                  .slice(0, 5)
-                  .map((ex) => (
-                    <div
-                      key={ex.id}
-                      onClick={() => onNavigateToView("worklist")}
-                      className="p-3 rounded border border-red-200 bg-red-50/50 hover:bg-red-50 transition-all cursor-pointer"
-                    >
-                      <div className="flex items-center justify-between text-[11px] font-bold text-red-900 mb-1">
-                        <span className="truncate">{ex.category}</span>
-                        <span className="text-[9.5px] px-1.5 py-0.2 bg-red-200 rounded uppercase font-mono">{ex.severity}</span>
+                  .slice(0, 10)
+                  .map((ex) => {
+                    const handleExceptionClick = () => {
+                      if (ex.studyId) {
+                        if (ex.category === "Reporting Delay") {
+                          onNavigateToView("reporting", ex.studyId)
+                        } else if (ex.category === "Incomplete Examination") {
+                          onNavigateToView("operations", ex.studyId)
+                        } else {
+                          onNavigateToView("worklist", ex.studyId)
+                        }
+                      } else {
+                        onNavigateToView("worklist")
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={ex.id}
+                        onClick={handleExceptionClick}
+                        className="p-3 rounded border border-red-200 bg-red-50/50 hover:bg-red-50 hover:shadow-xs transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between text-[11px] font-bold text-red-900 mb-1">
+                          <span className="truncate">{ex.category}</span>
+                          <span
+                            className={`text-[9.5px] px-1.5 py-0.5 rounded uppercase font-mono font-semibold ${
+                              ex.severity === "Critical"
+                                ? "bg-red-200 text-red-800"
+                                : ex.severity === "High"
+                                ? "bg-amber-200 text-amber-900"
+                                : "bg-blue-100 text-blue-800"
+                            }`}
+                          >
+                            {ex.severity}
+                          </span>
+                        </div>
+                        <p className="text-[11.5px] text-[#334155] line-clamp-2 leading-relaxed">{ex.description}</p>
+                        <div className="mt-1.5 text-[10.5px] text-[#64748B] flex items-center justify-between">
+                          <span className="font-medium text-[#475569]">
+                            {ex.patientName ? `${ex.patientName} (${ex.umr || "—"})` : "System Exception"}
+                          </span>
+                          <span className="font-mono">
+                            {new Date(ex.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-[11.5px] text-[#334155] line-clamp-2">{ex.description}</p>
-                      <div className="mt-1.5 text-[10.5px] text-[#64748B] flex items-center justify-between">
-                        <span>{ex.patientName || "System Alert"}</span>
-                        <span>{new Date(ex.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
               </div>
             )}
             <button
@@ -333,30 +435,68 @@ export default function RadiologyOverviewView({
               <button
                 onClick={() => setTick((t) => t + 1)}
                 className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                title="Refresh Activity"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-              {auditEvents.slice(0, 8).map((ev) => (
-                <div key={ev.id} className="flex items-start gap-2.5 text-[12px] border-b border-slate-100 pb-2.5 last:border-b-0">
-                  <div className="w-2 h-2 rounded-full bg-[#1B4FD8] mt-1.5 shrink-0"></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#0F172A]">{ev.action}</span>
-                      <span className="text-[10px] text-[#64748B] font-mono">
-                        {new Date(ev.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
+            {auditEvents.length === 0 ? (
+              <div className="py-8 text-center text-[12.5px] text-[#64748B]">
+                <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                No department activity recorded yet.
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
+                {auditEvents.slice(0, 12).map((ev) => {
+                  const handleActivityClick = () => {
+                    if (ev.studyId) {
+                      if (ev.action.includes("Report") || ev.action.includes("Finalized")) {
+                        onNavigateToView("reporting", ev.studyId)
+                      } else if (ev.action.includes("Scan")) {
+                        onNavigateToView("operations", ev.studyId)
+                      } else {
+                        onNavigateToView("worklist", ev.studyId)
+                      }
+                    } else {
+                      onNavigateToView("worklist")
+                    }
+                  }
+
+                  const evDate = new Date(ev.timestamp)
+                  const timeFormatted = isNaN(evDate.getTime())
+                    ? ev.timestamp
+                    : evDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+
+                  return (
+                    <div
+                      key={ev.id}
+                      onClick={handleActivityClick}
+                      className="flex items-start gap-2.5 text-[12px] border-b border-slate-100 pb-2.5 last:border-b-0 hover:bg-slate-50/80 p-1 rounded transition-colors cursor-pointer"
+                    >
+                      <div className="w-2 h-2 rounded-full bg-[#1B4FD8] mt-1.5 shrink-0"></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold text-[#0F172A] truncate">{ev.action}</span>
+                          <span className="text-[10px] text-[#64748B] font-mono shrink-0">
+                            {timeFormatted}
+                          </span>
+                        </div>
+                        <p className="text-[11.5px] text-[#475569] line-clamp-2 mt-0.5 leading-snug">{ev.details}</p>
+                        <div className="text-[10.5px] text-[#94A3B8] mt-1 flex items-center justify-between">
+                          <span>{ev.actor} ({ev.role})</span>
+                          {ev.patientName && (
+                            <span className="truncate font-medium text-[#64748B]">
+                              {ev.patientName} {ev.umr ? `(${ev.umr})` : ""}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-[11.5px] text-[#475569] truncate">{ev.details}</p>
-                    <div className="text-[10.5px] text-[#94A3B8] mt-0.5">
-                      {ev.actor} ({ev.role})
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

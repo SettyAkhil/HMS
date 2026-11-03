@@ -461,13 +461,15 @@ export default function UniversalRadiologyShell({
                   </button>
                 )}
 
-                <button
-                  onClick={() => setShowNewOrderModal(true)}
-                  className="bg-[#1B4FD8] hover:bg-[#1740B4] text-white px-3.5 py-1.5 rounded text-[12.5px] font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>+ Order Investigation</span>
-                </button>
+                {activeView !== "overview" && (
+                  <button
+                    onClick={() => setShowNewOrderModal(true)}
+                    className="bg-[#1B4FD8] hover:bg-[#1740B4] text-white px-3.5 py-1.5 rounded text-[12.5px] font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>+ Order Investigation</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => setTick((t) => t + 1)}
@@ -489,7 +491,6 @@ export default function UniversalRadiologyShell({
               <div className={activeView === "overview" ? "block" : "hidden"}>
                 <RadiologyOverviewView
                   onNavigateToView={handleNavigate}
-                  onOpenOrderModal={() => setShowNewOrderModal(true)}
                 />
               </div>
             )}

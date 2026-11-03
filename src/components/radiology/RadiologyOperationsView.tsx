@@ -731,6 +731,7 @@ export default function RadiologyOperationsView({
         details: `Scan started in ${study.room || "Scan Suite 1"}. Pre-procedure safety verification completed. Start time: ${nowTime}.`,
       })
 
+      UniversalRadiologyDb.occupySuiteForStudy(study.id || studyId, study.room)
       RadiologyWorkflowDb.invalidateCache()
       showToast(`✓ Scan started for ${study.patient} (${study.study}). Stage 2: In Progress.`, "success")
       setTick((t) => t + 1)
@@ -811,6 +812,7 @@ export default function RadiologyOperationsView({
         details: `Scan complete for ${study.study} (Time: ${nowTime}). Protocol: ${actualProtocol}. Status: COMPLETED. Ready to send to Reporting Workspace.`,
       })
 
+      UniversalRadiologyDb.releaseSuiteForStudy(targetId)
       RadiologyWorkflowDb.invalidateCache()
       setShowCompleteModal(false)
       showToast("Scan marked as completed. Click 'Send to Reporting Workspace' to transfer.", "info")
@@ -951,6 +953,8 @@ export default function RadiologyOperationsView({
         details: `Examination ${study.study} for ${study.patient} (${study.umr || study.mrn}) sent to Reporting Workspace. Status updated to Awaiting Report.`,
       })
 
+      UniversalRadiologyDb.releaseSuiteForStudy(targetId)
+
       // Clean up override stage for this study
       setOverrideStage((prev) => {
         const next = { ...prev }
@@ -1033,6 +1037,7 @@ export default function RadiologyOperationsView({
     if (!selectedStudy) return
     try {
       RadiologyWorkflowDb.updateStudyStatus(selectedStudy.id, "ORDERED", performingTech)
+      UniversalRadiologyDb.releaseSuiteForStudy(selectedStudy.id)
       UniversalRadiologyDb.createException({
         category: "Incomplete Examination",
         severity: "High",

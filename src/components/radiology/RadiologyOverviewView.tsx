@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { RadiologyWorkflowDb, ExtendedRadiologyRecord } from "../../services/radiologyWorkflowDb"
 import { UniversalRadiologyDb, RadiologySuite, RadiologyException, safeToTimestamp } from "../../services/universalRadiologyDb"
+import { RadiologyTemplateDatabase } from "../../services/radiologyTemplateDb"
 import { RADIOLOGY_MODALITIES } from "../../services/radiologyTariffsData"
 import { isPaidOrClearedStudy } from "./RadiologyOperationsView"
 
@@ -32,9 +33,18 @@ export default function RadiologyOverviewView({
   useEffect(() => {
     const unsub1 = RadiologyWorkflowDb.subscribe(() => setTick((t) => t + 1))
     const unsub2 = UniversalRadiologyDb.subscribe(() => setTick((t) => t + 1))
+    const unsub3 = RadiologyTemplateDatabase.onUpdate(() => setTick((t) => t + 1))
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.key.includes("rad")) {
+        setTick((t) => t + 1)
+      }
+    }
+    window.addEventListener("storage", handleStorage)
     return () => {
       unsub1()
       unsub2()
+      unsub3()
+      window.removeEventListener("storage", handleStorage)
     }
   }, [])
 
@@ -79,108 +89,7 @@ export default function RadiologyOverviewView({
   }
 
   // Single-pass computation for summary counters from persisted records
-  const summary = useMemo(() => {
-    let todayOrders = 0
-    let awaitingVerification = 0
-    let readyToScan = 0
-    let inScanning = 0
-    let awaitingReport = 0
-    let drafts = 0
-    let finalized = 0
-
-    const now = new Date()
-    const todayLocalYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
-
-    const isCreatedToday = (s: ExtendedRadiologyRecord): boolean => {
-      if (s.orderDate && s.orderDate.slice(0, 10) === todayLocalYMD) return true
-      const ts = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
-      if (ts > 1000000000000) {
-        const d = new Date(ts)
-        const dYMD = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-        if (dYMD === todayLocalYMD) return true
-      }
-      if (s.ordered && s.ordered.length >= 10 && s.ordered.slice(0, 10) === todayLocalYMD) return true
-      return false
-    }
-
-    const isCancelled = (s: ExtendedRadiologyRecord) => {
-      const status = (s.status || "").toLowerCase()
-      const wStatus = ((s as any).workflowStatus || "").toLowerCase()
-      const bStatus = (s.billingStatus || "").toLowerCase()
-      const pStatus = (s.paymentStatus || "").toLowerCase()
-      return (
-        (s as any).isCancelled === true ||
-        status === "cancelled" ||
-        wStatus === "cancelled" ||
-        bStatus === "cancelled" ||
-        pStatus === "cancelled"
-      )
-    }
-
-    studies.forEach((s) => {
-      if (isCancelled(s)) return
-
-      if (isCreatedToday(s)) {
-        todayOrders++
-      }
-
-      if ((s.normalizedStatus === "ORDERED" || !s.normalizedStatus || s.status === "Pending") && !s.nurseVerified) {
-        awaitingVerification++
-      }
-
-      if (
-        isPaidOrClearedStudy(s) &&
-        (s.normalizedStatus === "ORDERED" || !s.normalizedStatus || s.status === "Scheduled") &&
-        s.normalizedStatus !== "IN PROGRESS" &&
-        s.normalizedStatus !== "DONE" &&
-        (s as any).scanningStage !== 2 &&
-        (s as any).scanningStage !== 3
-      ) {
-        readyToScan++
-      }
-
-      if (
-        (s.normalizedStatus === "IN PROGRESS" || s.status === "In Progress" || (s as any).scanningStage === 2) &&
-        s.normalizedStatus !== "DONE"
-      ) {
-        inScanning++
-      }
-
-      if (
-        (s.normalizedStatus === "DONE" || (s as any).scanningStage === 3 || !!s.sentToReporting) &&
-        (s.normalizedReportStatus === "Awaiting Report" || s.reportStatus === "Awaiting Report") &&
-        s.normalizedReportStatus !== "Draft" &&
-        s.normalizedReportStatus !== "Finalized" &&
-        !s.hasDraft
-      ) {
-        awaitingReport++
-      }
-
-      if (
-        (s.normalizedReportStatus === "Draft" || (s as any).reportStatus === "Draft" || !!s.hasDraft) &&
-        s.normalizedReportStatus !== "Finalized"
-      ) {
-        drafts++
-      }
-
-      if (s.normalizedReportStatus === "Finalized" || s.reportStatus === "Finalized" || !!s.finalizedAt) {
-        finalized++
-      }
-    })
-
-    const availableSuites = suites.filter((s) => s.status === "Available").length
-
-    return {
-      todayOrders,
-      awaitingVerification,
-      readyToScan,
-      inScanning,
-      awaitingReport,
-      drafts,
-      finalized,
-      availableSuites,
-    }
-  }, [studies, suites])
+  const summary = useMemo(() => UniversalRadiologyDb.getOperationalSummary(), [tick])
 
   return (
     <div className="space-y-6">
@@ -207,13 +116,13 @@ export default function RadiologyOverviewView({
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
         {[
           { label: "Today's Orders", count: summary.todayOrders, view: "worklist", color: "blue", icon: FileText },
-          { label: "Verify Pending", count: summary.awaitingVerification, view: "worklist", filter: "verify", color: "amber", icon: AlertTriangle },
-          { label: "Ready to Scan", count: summary.readyToScan, view: "worklist", filter: "ready", color: "emerald", icon: CheckCircle2 },
-          { label: "In Scanning", count: summary.inScanning, view: "operations", color: "indigo", icon: Play },
+          { label: "Verify Pending", count: summary.verifyPending, view: "worklist", filter: "verify", color: "amber", icon: AlertTriangle },
+          { label: "Ready to Scan", count: summary.readyToScan, view: "operations", filter: "ready_to_scan", color: "emerald", icon: CheckCircle2 },
+          { label: "In Scanning", count: summary.inScanning, view: "operations", filter: "in_progress", color: "indigo", icon: Play },
           { label: "Awaiting Report", count: summary.awaitingReport, view: "reporting", filter: "awaiting", color: "purple", icon: Clock },
-          { label: "Report Drafts", count: summary.drafts, view: "reporting", filter: "drafts", color: "amber", icon: FileText },
-          { label: "Finalized Reports", count: summary.finalized, view: "finalized", color: "emerald", icon: CheckCircle2 },
-          { label: "Active Suites", count: `${summary.availableSuites}/${suites.length}`, view: "operations", color: "slate", icon: Layers },
+          { label: "Report Drafts", count: summary.reportDrafts, view: "reporting", filter: "drafts", color: "amber", icon: FileText },
+          { label: "Finalized Reports", count: summary.finalizedReports, view: "finalized", color: "emerald", icon: CheckCircle2 },
+          { label: "Active Suites", count: `${summary.availableSuites}/${summary.totalSuites}`, view: "operations", color: "slate", icon: Layers },
           { label: "Order → Scan TAT", count: analytics.turnaroundTime.orderToScan, view: "analytics", color: "blue", icon: Activity },
           { label: "Scan → Report TAT", count: analytics.turnaroundTime.scanToReport, view: "analytics", color: "purple", icon: Clock },
           { label: "Overall Median TAT", count: analytics.turnaroundTime.medianTat, view: "analytics", color: "emerald", icon: TrendingUp },
@@ -274,7 +183,7 @@ export default function RadiologyOverviewView({
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {RADIOLOGY_MODALITIES.map((mod) => {
-                const count = analytics.modalityCounts[mod] || 0
+                const count = summary.modalityCounts[mod] || 0
                 return (
                   <div
                     key={mod}

@@ -42,6 +42,7 @@ interface RadiologyOperationsViewProps {
   onNavigateToWorklist?: () => void
   onOpenOrderModal?: () => void
   initialStudyId?: string | null
+  initialTab?: ScanningStatusCategory
 }
 
 export type ScanningStatusCategory = "all" | "ready_to_scan" | "in_progress" | "awaiting_clearance"
@@ -152,6 +153,7 @@ export default function RadiologyOperationsView({
   onNavigateToWorklist,
   onOpenOrderModal,
   initialStudyId = null,
+  initialTab,
 }: RadiologyOperationsViewProps) {
   const [tick, setTick] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -165,8 +167,14 @@ export default function RadiologyOperationsView({
     }
   }, [initialStudyId])
 
+  useEffect(() => {
+    if (initialTab) {
+      setStatusTab(initialTab)
+    }
+  }, [initialTab])
+
   // Filters
-  const [statusTab, setStatusTab] = useState<ScanningStatusCategory>("all")
+  const [statusTab, setStatusTab] = useState<ScanningStatusCategory>(initialTab || "all")
   const [searchQuery, setSearchQuery] = useState("")
   const [modalityFilter, setModalityFilter] = useState("all")
   const [suiteFilter, setSuiteFilter] = useState("all")

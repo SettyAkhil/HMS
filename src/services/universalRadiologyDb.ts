@@ -10,6 +10,7 @@
  */
 
 import { BillingDatabase, RadiologyStudyRecord } from "./billingDb"
+import { RadiologyTemplateDatabase } from "./radiologyTemplateDb"
 import { RadiologyWorkflowDb, ExtendedRadiologyRecord } from "./radiologyWorkflowDb"
 import { db } from "./db"
 import { RADIOLOGY_MODALITIES } from "./radiologyTariffsData"
@@ -212,6 +213,100 @@ const INITIAL_SUITES: RadiologySuite[] = [
   { id: "suite_ir_1", code: "IR-01", name: "Interventional Angio / Cath Suite", room: "Cath Lab 2", modality: "Interventional Radiology", status: "Available", utilization: "Ready for Next Patient" },
 ]
 
+
+export const isPaidOrClearedStudy = (s: ExtendedRadiologyRecord): boolean => {
+  // 1. Exclude cancelled or rejected orders
+  if (
+    (s as any).isCancelled ||
+    (s as any).status === "Cancelled" ||
+    (s as any).billingStatus === "Cancelled" ||
+    (s as any).paymentStatus === "Cancelled" ||
+    (s as any).workflowStatus === "CANCELLED"
+  ) {
+    return false
+  }
+  if ((s as any).billingStatus === "Rejected" || (s as any).paymentStatus === "Rejected") {
+    return false
+  }
+
+  // 2. Exclude billing discrepancy
+  if (s.hasBillingDiscrepancy) {
+    return false
+  }
+
+  // 3. Strictly exclude pending payment unless authorized clinical exception is present
+  const pStatus = (s.paymentStatus || "").toLowerCase().trim()
+  const bStatus = (s.billingStatus || "").toLowerCase().trim()
+
+  if (
+    pStatus === "payment pending" ||
+    pStatus === "pending" ||
+    bStatus === "pending" ||
+    bStatus === "pending billing" ||
+    bStatus === "payment pending"
+  ) {
+    if (!s.authorizedException && bStatus !== "authorized exception" && !(s as any).authorizedExceptionRef) {
+      return false
+    }
+  }
+
+  const isPaid = Boolean(
+    s.isPaid === true ||
+    pStatus === "paid" ||
+    (s.paymentStatusDisplay || "").toUpperCase() === "PAID" ||
+    bStatus === "paid" ||
+    bStatus === "cleared" ||
+    bStatus === "authorized exception" ||
+    Boolean(s.paidReceiptNo) ||
+    Boolean(s.authorizedException)
+  )
+
+  return isPaid
+}
+
+export function getStudyStatusCategory(
+  s: ExtendedRadiologyRecord,
+  overrideStage: Record<string, number> = {}
+): "in_progress" | "completed" | "ready_to_scan" {
+  if (!s) return "ready_to_scan"
+  const targetId = (s.id || "").toLowerCase()
+  const targetUmr = (s.umr || s.mrn || "").toLowerCase()
+  const targetAccession = (s.accessionNo || "").toLowerCase()
+
+  for (const [k, v] of Object.entries(overrideStage)) {
+    const kLower = k.toLowerCase()
+    if (
+      kLower === targetId ||
+      (targetUmr && kLower === targetUmr) ||
+      (targetAccession && kLower === targetAccession)
+    ) {
+      if (v === 3) return "completed"
+      if (v === 2) return "in_progress"
+      return "ready_to_scan"
+    }
+  }
+
+  try {
+    if (typeof localStorage !== "undefined") {
+      const pStage =
+        localStorage.getItem(`hospai_rad_stage_${s.id}`) ||
+        (s.umr ? localStorage.getItem(`hospai_rad_stage_${s.umr}`) : null) ||
+        (s.accessionNo ? localStorage.getItem(`hospai_rad_stage_${s.accessionNo}`) : null) ||
+        (s.mrn ? localStorage.getItem(`hospai_rad_stage_${s.mrn}`) : null)
+      if (pStage === "3") return "completed"
+      if (pStage === "2") return "in_progress"
+    }
+  } catch {}
+
+  if ((s as any).workflowStatus === "COMPLETED") return "completed"
+  if ((s as any).workflowStatus === "IN_PROGRESS") return "in_progress"
+  if ((s as any).workflowStatus === "READY_TO_START") return "ready_to_scan"
+
+  if (s.normalizedStatus === "DONE" || s.status === "Images Ready" || s.status === "Done" || s.scanningStage === 3) return "completed"
+  if (s.normalizedStatus === "IN PROGRESS" || s.status === "In Progress" || s.scanningStage === 2) return "in_progress"
+  return "ready_to_scan"
+}
+
 export class UniversalRadiologyDb {
   private static listeners: Set<() => void> = new Set()
   private static channel: BroadcastChannel | null = null
@@ -392,6 +487,258 @@ export class UniversalRadiologyDb {
       role: "Radiology Supervisor",
       details: `Equipment suite ${id} status transitioned to '${status}'`
     })
+  }
+
+  /**
+   * Authoritative synchronized operational metrics across all 10 department dimensions:
+   * 1. Examination Worklist
+   * 2. Verification Workflow
+   * 3. Billing & Payment Clearance
+   * 4. Scanning Operations (Ready to Start & In Progress)
+   * 5. Reporting Workspace (Awaiting Report, Drafts, Review, Corrections)
+   * 6. Finalized Reports Archive
+   * 7. Clinical Modality Workload (All 11 Modalities)
+   * 8. Imaging Suites & Equipment Availability
+   * 9. Operational Exception Alerts
+   * 10. Turnaround Times (Order->Scan, Scan->Report, Median TAT)
+   */
+  public static getOperationalSummary() {
+    const allStudies = RadiologyWorkflowDb.getStudies()
+    const suites = this.getSuites()
+    const exceptions = this.getExceptions()
+    const persistedReports = RadiologyTemplateDatabase.getReports()
+
+    const reportMap = new Map<string, any>()
+    persistedReports.forEach((r) => {
+      if (r.studyId) reportMap.set(r.studyId.toLowerCase().trim(), r)
+      if (r.testId) reportMap.set(r.testId.toLowerCase().trim(), r)
+      if (r.examinationId) reportMap.set(r.examinationId.toLowerCase().trim(), r)
+    })
+
+    const sentKeys = new Set<string>()
+    allStudies.forEach((s) => {
+      if (s.id && typeof localStorage !== "undefined" && localStorage.getItem(`hospai_rad_sent_${s.id}`) === "true") {
+        sentKeys.add(s.id.toLowerCase())
+      }
+    })
+
+    const now = new Date()
+    const todayLocalYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+
+    const isCreatedToday = (s: ExtendedRadiologyRecord): boolean => {
+      try {
+        if (s.orderDate && s.orderDate.slice(0, 10) === todayLocalYMD) return true
+        const ts = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
+        if (ts > 1000000000000) {
+          const d = new Date(ts)
+          if (!isNaN(d.getTime())) {
+            const dYMD = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+            if (dYMD === todayLocalYMD) return true
+          }
+        }
+        if (s.ordered && s.ordered.length >= 10 && s.ordered.slice(0, 10) === todayLocalYMD) return true
+      } catch {}
+      return false
+    }
+
+    const isCancelled = (s: ExtendedRadiologyRecord) => {
+      const status = (s.status || "").toLowerCase()
+      const wStatus = ((s as any).workflowStatus || "").toLowerCase()
+      const bStatus = (s.billingStatus || "").toLowerCase()
+      const pStatus = (s.paymentStatus || "").toLowerCase()
+      return (
+        (s as any).isCancelled === true ||
+        status === "cancelled" ||
+        wStatus === "cancelled" ||
+        bStatus === "cancelled" ||
+        pStatus === "cancelled"
+      )
+    }
+
+    let todayOrders = 0
+    let verifyPending = 0
+    let readyToScan = 0
+    let inScanning = 0
+    let awaitingReport = 0
+    let reportDrafts = 0
+    let underReview = 0
+    let correctionRequired = 0
+    let finalizedReports = 0
+
+    // Modality breakdown
+    const modalityCounts: Record<string, number> = {}
+    RADIOLOGY_MODALITIES.forEach((m) => {
+      modalityCounts[m] = 0
+    })
+
+    const seenStudies = new Set<string>()
+
+    allStudies.forEach((s) => {
+      if (isCancelled(s)) return
+
+      const sId = (s.id || "").toLowerCase()
+      if (sId) {
+        if (seenStudies.has(sId)) return
+        seenStudies.add(sId)
+      }
+
+      // 1. Today's Orders
+      if (isCreatedToday(s)) {
+        todayOrders++
+      }
+
+      // 2. Verify Pending (Orders awaiting required nurse verification)
+      if (!s.nurseVerified) {
+        verifyPending++
+      }
+
+      // 3. Modality Count (unique, valid examinations)
+      const canonicalMod = getCanonicalRadiologyModality(s)
+      if (canonicalMod && modalityCounts[canonicalMod] !== undefined) {
+        modalityCounts[canonicalMod]++
+      }
+
+      // 4. Scanning Operations: Ready to Scan & In Scanning
+      const sKey = (s.id || "").toLowerCase().trim()
+      const isMarkedSent = Boolean(
+        sKey && (
+          sentKeys.has(sKey) ||
+          s.sentToReporting ||
+          s.status === "Sent for Reporting" ||
+          (s as any).workflowStatus === "SENT_TO_REPORTING"
+        )
+      )
+
+      const isPaidOrCleared = isPaidOrClearedStudy(s)
+      const catScanning = getStudyStatusCategory(s)
+
+      const isFinal =
+        s.normalizedReportStatus === "Finalized" ||
+        s.reportStatus === "Final" ||
+        s.reportStatus === "Finalized" ||
+        (s as any).workflowStatus === "FINALIZED" ||
+        (sKey && reportMap.get(sKey)?.status === "Final") ||
+        (sKey && reportMap.get(sKey)?.status === "FINALIZED")
+
+      // Only count in scanning if paid/cleared and not sent to reporting and not finalized/draft
+      if (isPaidOrCleared && !isMarkedSent && !isFinal) {
+        const isAlreadyReportedOrDraft =
+          s.normalizedReportStatus === "Draft" ||
+          s.normalizedReportStatus === "Submitted for Review" ||
+          s.reportStatus === "Draft" ||
+          s.reportStatus === "Submitted for Review"
+        if (!isAlreadyReportedOrDraft) {
+          if (catScanning === "ready_to_scan") {
+            readyToScan++
+          } else if (catScanning === "in_progress") {
+            inScanning++
+          }
+        }
+      }
+
+      // 5. Finalized Reports
+      if (isFinal) {
+        finalizedReports++
+      }
+
+      // 6. Reporting Workspace: Awaiting Report, Drafts, Under Review, Correction Required
+      const repRecord = sKey ? reportMap.get(sKey) : undefined
+      const isEligibleForReporting =
+        !isFinal &&
+        (isMarkedSent ||
+          Boolean(s.transferredToReportingAt) ||
+          Boolean(s.reportingQueuedAt) ||
+          Boolean(repRecord) ||
+          s.normalizedReportStatus === "Draft" ||
+          s.normalizedReportStatus === "Submitted for Review" ||
+          s.normalizedReportStatus === "Needs Correction" ||
+          s.normalizedReportStatus === "Correction Required" ||
+          s.reportStatus === "Draft" ||
+          s.reportStatus === "Submitted for Review" ||
+          s.reportStatus === "Needs Correction" ||
+          s.reportStatus === "Correction Required" ||
+          (s as any).workflowStatus === "DRAFT_SAVED" ||
+          (s as any).workflowStatus === "UNDER_REVIEW" ||
+          (s as any).workflowStatus === "CORRECTION_REQUIRED")
+
+      const isStillScanningOnly =
+        (s.status === "In Progress" || s.scanningStage === 2 || s.normalizedStatus === "IN PROGRESS" || s.status === "Orders" || s.normalizedStatus === "ORDERED") &&
+        !isMarkedSent &&
+        !s.transferredToReportingAt &&
+        !s.reportingQueuedAt &&
+        !repRecord
+
+      if (isEligibleForReporting && !isStillScanningOnly) {
+        const rs = (s.reportStatus || "").toString().trim().toLowerCase()
+        const nrs = (s.normalizedReportStatus || "").toString().trim().toLowerCase()
+        const ws = ((s as any).workflowStatus || "").toString().trim().toLowerCase()
+        const repStatus = (repRecord?.status || "").toString().trim().toLowerCase()
+
+        if (
+          nrs === "correction required" ||
+          nrs === "needs correction" ||
+          rs === "correction required" ||
+          rs === "correction_required" ||
+          rs === "needs correction" ||
+          rs === "correction" ||
+          ws === "correction_required" ||
+          repStatus === "correction required" ||
+          repStatus === "correction_required" ||
+          repStatus === "needs correction" ||
+          Boolean(s.returnedForCorrectionAt)
+        ) {
+          correctionRequired++
+        } else if (
+          nrs === "submitted for review" ||
+          nrs === "under review" ||
+          rs === "submitted for review" ||
+          rs === "submitted_for_review" ||
+          rs === "submitted" ||
+          rs === "under review" ||
+          rs === "under_review" ||
+          ws === "submitted_for_review" ||
+          ws === "under_review" ||
+          repStatus === "submitted for review" ||
+          repStatus === "submitted" ||
+          repStatus === "under_review"
+        ) {
+          underReview++
+        } else if (
+          nrs === "draft" ||
+          nrs === "draft saved" ||
+          rs === "draft" ||
+          rs === "draft saved" ||
+          rs === "draft_saved" ||
+          ws === "draft" ||
+          ws === "draft_saved" ||
+          repStatus === "draft" ||
+          repStatus === "draft_saved"
+        ) {
+          reportDrafts++
+        } else {
+          awaitingReport++
+        }
+      }
+    })
+
+    const availableSuites = suites.filter((s) => s.status === "Available").length
+    const openExceptions = exceptions.filter((e) => e.status !== "Resolved").length
+
+    return {
+      todayOrders,
+      verifyPending,
+      readyToScan,
+      inScanning,
+      awaitingReport,
+      reportDrafts,
+      underReview,
+      correctionRequired,
+      finalizedReports,
+      availableSuites,
+      totalSuites: suites.length,
+      openExceptions,
+      modalityCounts,
+    }
   }
 
   // ── Appointments & Scheduling ─────────────────────────────────────────────────
@@ -666,6 +1013,22 @@ export class UniversalRadiologyDb {
         })
       }
 
+      // 1b. Nurse Verification Completed
+      if (s.nurseVerified) {
+        synthesized.push({
+          id: `AUD-VERIFY-${s.id}`,
+          timestamp: safeToIsoDate((s as any).verifiedAt || orderTs, s.orderDate),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Nurse Verification Completed",
+          actor: (s as any).verifiedBy || "Triage Staff Nurse",
+          role: "Staff Nurse",
+          details: `Clinical safety and identity verification confirmed for ${s.study}`,
+        })
+      }
+
       // 2. Billing Cleared
       if ((s.isPaid || s.paymentStatus === "Paid") && (s.paidAt || s.billingClearedAt)) {
         synthesized.push({
@@ -743,6 +1106,38 @@ export class UniversalRadiologyDb {
           actor: s.radiologist || "Consultant Radiologist",
           role: "Radiologist",
           details: `Diagnostic report draft saved with anatomical section findings for ${s.patient}`,
+        })
+      }
+
+      // 6b. Submitted for Review
+      if (s.normalizedReportStatus === "Submitted for Review" || (s as any).workflowStatus === "SUBMITTED_FOR_REVIEW") {
+        synthesized.push({
+          id: `AUD-REVIEW-${s.id}`,
+          timestamp: safeToIsoDate((s as any).submittedForReviewAt || (s as any).reportCreatedAt || orderTs, s.orderDate),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Submitted for Review",
+          actor: s.radiologist || "Consultant Radiologist",
+          role: "Radiologist",
+          details: `Diagnostic report submitted for peer / senior radiologist review`,
+        })
+      }
+
+      // 6c. Returned for Correction
+      if (s.normalizedReportStatus === "Correction Required" || Boolean(s.returnedForCorrectionAt) || Boolean(s.correctionNotes)) {
+        synthesized.push({
+          id: `AUD-CORRECT-${s.id}`,
+          timestamp: safeToIsoDate(s.returnedForCorrectionAt || orderTs, s.orderDate),
+          studyId: s.id,
+          patientName: s.patient,
+          umr: s.umr,
+          studyName: s.study,
+          action: "Returned for Correction",
+          actor: (s as any).returnedBy || "Senior Radiologist",
+          role: "Senior Radiologist",
+          details: `Report returned for revision: ${s.correctionNotes || "Clinical / anatomical clarifications requested"}`,
         })
       }
 

@@ -207,8 +207,23 @@ export default function RadiologyWorklistView({
     setCurrentPage(1)
   }, [initialModalityFilter])
 
+  useEffect(() => {
+    if (initialStatusFilter === "verify" || initialStatusFilter === "unverified") {
+      setOrderStatusFilter("unverified")
+      setCurrentPage(1)
+    } else if (initialStatusFilter === "ready" || initialStatusFilter === "in_progress") {
+      setExamStatusFilter(initialStatusFilter)
+      setCurrentPage(1)
+    } else if (initialStatusFilter === "awaiting" || initialStatusFilter === "drafts") {
+      setReportStatusFilter(initialStatusFilter)
+      setCurrentPage(1)
+    }
+  }, [initialStatusFilter])
+
   // 4 Independent Status Filters
-  const [orderStatusFilter, setOrderStatusFilter] = useState<string>("all")
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>(
+    initialStatusFilter === "verify" || initialStatusFilter === "unverified" ? "unverified" : "all"
+  )
   const [billingStatusFilter, setBillingStatusFilter] = useState<string>("all")
   const [examStatusFilter, setExamStatusFilter] = useState<string>(
     initialStatusFilter === "ready" ? "ready" : initialStatusFilter === "in_progress" ? "in_progress" : "all"

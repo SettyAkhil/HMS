@@ -524,7 +524,18 @@ export default function UniversalRadiologyShell({
             {visitedViews.has("operations") && (
               <div className={activeView === "operations" ? "block" : "hidden"}>
                 <RadiologyOperationsView
-                  initialStudyId={viewSubParam}
+                  initialStudyId={
+                    viewSubParam && !["ready", "ready_to_scan", "in_progress", "awaiting_clearance", "all"].includes(viewSubParam)
+                      ? viewSubParam
+                      : undefined
+                  }
+                  initialTab={
+                    viewSubParam === "ready" || viewSubParam === "ready_to_scan"
+                      ? "ready_to_scan"
+                      : viewSubParam === "in_progress"
+                      ? "in_progress"
+                      : undefined
+                  }
                   onNavigateToReporting={(studyId) => {
                     handleNavigate("reporting", studyId)
                   }}
@@ -537,7 +548,16 @@ export default function UniversalRadiologyShell({
             {visitedViews.has("reporting") && (
               <div className={activeView === "reporting" ? "block" : "hidden"}>
                 <RadiologyReportingView
-                  initialStudyId={viewSubParam}
+                  initialStudyId={
+                    viewSubParam && !["awaiting", "drafts", "submitted", "correction"].includes(viewSubParam)
+                      ? viewSubParam
+                      : undefined
+                  }
+                  initialFilter={
+                    viewSubParam && ["awaiting", "drafts", "submitted", "correction"].includes(viewSubParam)
+                      ? viewSubParam
+                      : undefined
+                  }
                   currentTechnician={technician}
                   currentRole={role}
                   onNavigateToWorklist={() => handleNavigate("worklist")}

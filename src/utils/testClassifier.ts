@@ -49,14 +49,14 @@ export function getModalityForTest(testName: string): "XR" | "CT" | "MR" | "US" 
   const name = (testName || "").toLowerCase().trim()
   if (name.includes("mri") || name.includes("magnetic")) return "MR"
   if (
-    name.includes("ct") ||
+    name.includes("ct scan") ||
     name.includes("computed tomography") ||
     name.startsWith("ct ") ||
     name.startsWith("ct-") ||
     name.endsWith(" ct") ||
     name.includes(" ct ") ||
-    name.includes("ct scan") ||
-    name.includes("hrct")
+    name.includes("hrct") ||
+    /\bct\b/i.test(name)
   ) {
     return "CT"
   }
@@ -85,7 +85,7 @@ export function getRoomForModality(modality: "XR" | "CT" | "MR" | "US" | "NM"): 
   }
 }
 
-import { RADIOLOGY_MODALITIES, RadiologyModality } from "../services/radiologyTariffsData"
+import { RADIOLOGY_MODALITIES, RadiologyModality, INITIAL_RADIOLOGY_TARIFFS } from "../services/radiologyTariffsData"
 
 /**
  * Accurately maps any clinical study record, investigation name, or modality code
@@ -93,8 +93,10 @@ import { RADIOLOGY_MODALITIES, RadiologyModality } from "../services/radiologyTa
  */
 export function getCanonicalRadiologyModality(study: {
   study?: string
+  name?: string
   modality?: string
   department?: string
+  code?: string
   orderedItems?: Array<{ description?: string }>
 } | null | undefined): RadiologyModality {
   if (!study) return "X-Ray"
@@ -109,8 +111,26 @@ export function getCanonicalRadiologyModality(study: {
     return study.department as RadiologyModality
   }
 
-  const name = (study.study || "").toLowerCase()
+  const name = (study.study || (study as any).name || "").toLowerCase().trim()
   const modCode = (study.modality || "").toUpperCase().trim()
+  const code = ((study as any).code || "").toUpperCase().trim()
+
+  // 3. Authoritative catalog exact match from INITIAL_RADIOLOGY_TARIFFS
+  if (name || code) {
+    const tariff = INITIAL_RADIOLOGY_TARIFFS.find(
+      (t) =>
+        (code && t.code.toUpperCase() === code) ||
+        (name && t.name.toLowerCase() === name) ||
+        (name && t.code.toLowerCase() === name)
+    )
+    if (tariff && tariff.modality && (RADIOLOGY_MODALITIES as readonly string[]).includes(tariff.modality)) {
+      return tariff.modality as RadiologyModality
+    }
+  }
+
+  // Safeguard: Do NOT classify non-radiology clinical tests (e.g. ECG, surgical procedures) as CT
+  const isEcg = /\b(ecg|ekg|electrocardiogram|tmt|holter)\b/i.test(name) && !/\b(echo|echocardiogram|ultrasound)\b/i.test(name)
+
   const itemsText = (study.orderedItems || []).map((it) => it.description || "").join(" ").toLowerCase()
   const text = `${name} ${modCode} ${itemsText}`
 
@@ -209,22 +229,19 @@ export function getCanonicalRadiologyModality(study: {
     return "MRI"
   }
 
-  // 9. CT Scan
-  if (
+  // 9. CT Scan - Strictly ensure non-CT words (contracture, traction, extraction, resection, infection, fracture, etc.) are excluded
+  const isGenuineCt =
     modCode === "CT" ||
     text.includes("ct scan") ||
     text.includes("computed tomography") ||
     text.includes("hrct") ||
-    text.includes("ct head") ||
-    text.includes("ct brain") ||
-    text.includes("ct chest") ||
-    text.includes("ct abdomen") ||
-    text.includes("ct pelvis") ||
-    text.includes("ct spine") ||
     text.includes("ct angiogram") ||
+    text.includes("ct angio") ||
     text.includes("ct-") ||
+    /\bct\s+(head|brain|chest|abdomen|pelvis|spine|neck|kcb|pns|temporal|orbit|face|extremity)\b/i.test(text) ||
     /\bct\b/i.test(name)
-  ) {
+
+  if (isGenuineCt && !isEcg) {
     return "CT Scan"
   }
 

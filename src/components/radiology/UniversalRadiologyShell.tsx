@@ -6,11 +6,9 @@ import {
   FileText,
   CheckCircle2,
   BarChart3,
-  Search,
   Bell,
   Menu,
   X,
-  PlusCircle,
   RefreshCw,
   ChevronRight,
   ShieldCheck,
@@ -79,7 +77,6 @@ export default function UniversalRadiologyShell({
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [showNewOrderModal, setShowNewOrderModal] = useState(false)
   const [showTemplateImporterModal, setShowTemplateImporterModal] = useState(false)
-  const [globalSearch, setGlobalSearch] = useState("")
   const [tick, setTick] = useState(0)
   const mainScrollRef = useRef<HTMLElement | null>(null)
 
@@ -127,12 +124,9 @@ export default function UniversalRadiologyShell({
   useEffect(() => {
     const unsub1 = RadiologyWorkflowDb.subscribe(() => setTick((t) => t + 1))
     const unsub2 = UniversalRadiologyDb.subscribe(() => setTick((t) => t + 1))
-    const handleClearSearch = () => setGlobalSearch("")
-    window.addEventListener("hospai_rad_clear_global_search", handleClearSearch)
     return () => {
       unsub1()
       unsub2()
-      window.removeEventListener("hospai_rad_clear_global_search", handleClearSearch)
     }
   }, [])
 
@@ -417,51 +411,16 @@ export default function UniversalRadiologyShell({
             </div>
 
             {/* Quick Header Actions */}
-            {activeView === "template_upload" ? (
-              <div className="flex items-center gap-3">
-                <div className="relative w-64">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={globalSearch}
-                    onChange={(e) => setGlobalSearch(e.target.value)}
-                    placeholder="Search templates, test name..."
-                    className="w-full pl-8 pr-3 py-1.5 bg-[#F8FAFC] border border-slate-300 rounded text-[12px] text-slate-900 focus:outline-none focus:border-blue-600 shadow-2xs"
-                  />
-                  {globalSearch && (
-                    <button
-                      onClick={() => setGlobalSearch("")}
-                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-[11px]"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent("hospai_rad_new_template"))
-                  }}
-                  className="bg-[#1B4FD8] hover:bg-[#1740B4] text-white px-3.5 py-1.5 rounded text-[12.5px] font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>+ New Template</span>
-                </button>
-              </div>
-            ) : (
+            {activeView === "reporting" && (
               <div className="flex items-center gap-2.5">
-                {activeView === "reporting" && (
-                  <button
-                    onClick={() => setShowTemplateImporterModal(true)}
-                    className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded text-[12.5px] font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                    title="Upload report format file to reproduce original layout"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Upload Template</span>
-                  </button>
-                )}
-
-
+                <button
+                  onClick={() => setShowTemplateImporterModal(true)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded text-[12.5px] font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                  title="Upload report format file to reproduce original layout"
+                >
+                  <Upload className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Upload Template</span>
+                </button>
               </div>
             )}
           </header>
@@ -563,7 +522,6 @@ export default function UniversalRadiologyShell({
                   currentUserName={technician}
                   currentRole={role}
                   onNavigateView={handleNavigate}
-                  externalSearchQuery={globalSearch}
                 />
               </div>
             )}

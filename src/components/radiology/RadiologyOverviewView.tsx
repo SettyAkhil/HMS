@@ -16,7 +16,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { RadiologyWorkflowDb, ExtendedRadiologyRecord } from "../../services/radiologyWorkflowDb"
-import { UniversalRadiologyDb, RadiologySuite, RadiologyException } from "../../services/universalRadiologyDb"
+import { UniversalRadiologyDb, RadiologySuite, RadiologyException, safeToTimestamp } from "../../services/universalRadiologyDb"
 import { RADIOLOGY_MODALITIES } from "../../services/radiologyTariffsData"
 import { isPaidOrClearedStudy } from "./RadiologyOperationsView"
 
@@ -43,8 +43,8 @@ export default function RadiologyOverviewView({
   const suites = useMemo(() => UniversalRadiologyDb.getSuites(), [tick])
   const exceptions = useMemo(() => {
     return UniversalRadiologyDb.getExceptions().sort((a, b) => {
-      const timeA = new Date(a.timestamp || 0).getTime()
-      const timeB = new Date(b.timestamp || 0).getTime()
+      const timeA = safeToTimestamp(a.timestamp)
+      const timeB = safeToTimestamp(b.timestamp)
       if (timeA !== timeB) return timeB - timeA // Newest first
       return (b.id || "").localeCompare(a.id || "")
     })
@@ -55,12 +55,28 @@ export default function RadiologyOverviewView({
   // Stable secondary sort: Event ID descending.
   const auditEvents = useMemo(() => {
     return UniversalRadiologyDb.getAuditEvents().sort((a, b) => {
-      const timeA = new Date(a.timestamp || 0).getTime()
-      const timeB = new Date(b.timestamp || 0).getTime()
+      const timeA = safeToTimestamp(a.timestamp)
+      const timeB = safeToTimestamp(b.timestamp)
       if (timeA !== timeB) return timeB - timeA // Latest department activity first
       return (b.id || "").localeCompare(a.id || "")
     })
   }, [tick])
+
+  const formatSafeTime = (ts: any): string => {
+    if (!ts) return "—"
+    try {
+      const d = new Date(ts)
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) {
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      }
+    } catch {}
+    if (typeof ts === "string") {
+      const match = ts.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)/i)
+      if (match) return match[1]
+      return ts
+    }
+    return "—"
+  }
 
   // Single-pass computation for summary counters from persisted records
   const summary = useMemo(() => {
@@ -409,7 +425,7 @@ export default function RadiologyOverviewView({
                             {ex.patientName ? `${ex.patientName} (${ex.umr || "—"})` : "System Exception"}
                           </span>
                           <span className="font-mono">
-                            {new Date(ex.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            {formatSafeTime(ex.timestamp)}
                           </span>
                         </div>
                       </div>
@@ -463,10 +479,7 @@ export default function RadiologyOverviewView({
                     }
                   }
 
-                  const evDate = new Date(ev.timestamp)
-                  const timeFormatted = isNaN(evDate.getTime())
-                    ? ev.timestamp
-                    : evDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  const timeFormatted = formatSafeTime(ev.timestamp)
 
                   return (
                     <div

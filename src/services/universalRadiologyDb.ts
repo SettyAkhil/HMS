@@ -15,6 +15,87 @@ import { db } from "./db"
 import { RADIOLOGY_MODALITIES } from "./radiologyTariffsData"
 import { getCanonicalRadiologyModality } from "../utils/testClassifier"
 
+/**
+ * Safely parses any date, time, or timestamp into a valid ISO string.
+ * Handles full ISO strings, bullet dates, time-only strings ("04:30 PM"),
+ * timestamps, and invalid data without ever throwing RangeError.
+ */
+export function safeToIsoDate(raw: any, fallbackDateStr?: string): string {
+  try {
+    if (!raw) {
+      return fallbackDateStr && !isNaN(new Date(fallbackDateStr).getTime())
+        ? new Date(fallbackDateStr).toISOString()
+        : new Date().toISOString()
+    }
+
+    if (typeof raw === "number") {
+      if (isNaN(raw) || raw <= 0) return new Date().toISOString()
+      const ms = raw < 10000000000 ? raw * 1000 : raw
+      const d = new Date(ms)
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+    }
+
+    if (typeof raw === "string") {
+      let trimmed = raw.trim()
+      if (!trimmed) return new Date().toISOString()
+
+      // Replace bullet separators
+      trimmed = trimmed.replace(/[•·]/g, " ").replace(/\s+/g, " ")
+
+      // 1. Direct Date constructor
+      const d = new Date(trimmed)
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) {
+        return d.toISOString()
+      }
+
+      // 2. Numeric string?
+      const num = Number(trimmed)
+      if (!isNaN(num) && num > 1000000000) {
+        const ms = num < 10000000000 ? num * 1000 : num
+        const dNum = new Date(ms)
+        if (!isNaN(dNum.getTime())) return dNum.toISOString()
+      }
+
+      // 3. Time-only string (e.g. "04:30 PM", "16:30", "9:15 AM")
+      const baseDate = fallbackDateStr && /^\d{4}-\d{2}-\d{2}/.test(fallbackDateStr)
+        ? fallbackDateStr.slice(0, 10)
+        : new Date().toISOString().split("T")[0]
+
+      const combined = new Date(`${baseDate} ${trimmed}`)
+      if (!isNaN(combined.getTime())) {
+        return combined.toISOString()
+      }
+
+      const matchTime = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i)
+      if (matchTime) {
+        let hours = parseInt(matchTime[1], 10)
+        const minutes = parseInt(matchTime[2], 10)
+        const seconds = matchTime[3] ? parseInt(matchTime[3], 10) : 0
+        const ampm = (matchTime[4] || "").toUpperCase()
+        if (ampm === "PM" && hours < 12) hours += 12
+        if (ampm === "AM" && hours === 12) hours = 0
+        const dTime = new Date(`${baseDate}T00:00:00`)
+        dTime.setHours(hours, minutes, seconds, 0)
+        if (!isNaN(dTime.getTime())) {
+          return dTime.toISOString()
+        }
+      }
+    }
+  } catch {}
+
+  return new Date().toISOString()
+}
+
+export function safeToTimestamp(raw: any, fallbackDateStr?: string): number {
+  try {
+    const iso = safeToIsoDate(raw, fallbackDateStr)
+    const t = new Date(iso).getTime()
+    return isNaN(t) ? Date.now() : t
+  } catch {
+    return Date.now()
+  }
+}
+
 export type RadiologyAppointmentStatus =
   | "Scheduled"
   | "Checked In"
@@ -459,6 +540,9 @@ export class UniversalRadiologyDb {
     studies.forEach((s) => {
       if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return
 
+      const orderTs = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
+      const fallbackTs = safeToIsoDate(s.ordered || s.orderedAt || orderTs, s.orderDate)
+
       // 1. STAT priority with unverified / unpaid billing
       if (s.priority === "STAT" && !s.isPaid && s.paymentStatus !== "Paid" && s.billingStatus !== "Authorized Exception") {
         exceptions.push({
@@ -469,7 +553,7 @@ export class UniversalRadiologyDb {
           patientName: s.patient,
           umr: s.umr,
           description: `STAT emergency study "${s.study}" has unverified billing without authorized financial override clearance.`,
-          timestamp: s.ordered || new Date().toISOString(),
+          timestamp: fallbackTs,
           assignedOwner: "Radiology Reception / Billing Desk",
           status: "Open"
         })
@@ -485,7 +569,7 @@ export class UniversalRadiologyDb {
           patientName: s.patient,
           umr: s.umr,
           description: `Billing discrepancy: Scan acquisition completed for "${s.study}" while billing remains pending (₹${s.price || 0}). Flagged for authorized financial resolution.`,
-          timestamp: s.completedAt || s.ordered || new Date().toISOString(),
+          timestamp: safeToIsoDate(s.completedAt || s.scanCompletedAt || s.ordered || orderTs, s.orderDate),
           assignedOwner: "Central Billing Cashier / Clinical Supervisor",
           status: "Open"
         })
@@ -501,7 +585,7 @@ export class UniversalRadiologyDb {
           patientName: s.patient,
           umr: s.umr,
           description: `Scanning procedure for "${s.study}" was interrupted or flagged incomplete before protocol completion. Staff attention required.`,
-          timestamp: s.completedAt || s.ordered || new Date().toISOString(),
+          timestamp: safeToIsoDate(s.completedAt || s.scanCompletedAt || s.ordered || orderTs, s.orderDate),
           assignedOwner: s.technician || "Senior Radiologic Technologist",
           status: "Open"
         })
@@ -509,8 +593,10 @@ export class UniversalRadiologyDb {
 
       // 4. Report Overdue (>24 hours since scan completion)
       if (s.normalizedStatus === "DONE" && s.normalizedReportStatus !== "Finalized") {
-        const compTime = s.completedAt || s.scanningCompletedAt ? new Date(s.completedAt || s.scanningCompletedAt!).getTime() : 0
-        const orderTime = new Date(s.ordered || Date.now()).getTime()
+        const compTime = s.completedAt || s.scanningCompletedAt || s.scanCompletedAt
+          ? safeToTimestamp(s.completedAt || s.scanningCompletedAt || s.scanCompletedAt, s.orderDate)
+          : 0
+        const orderTime = safeToTimestamp(s.ordered || s.orderedAt || orderTs, s.orderDate)
         const effectiveTime = compTime > 0 ? compTime : orderTime
         const hoursAgo = (Date.now() - effectiveTime) / (1000 * 60 * 60)
         if (hoursAgo > 24) {
@@ -522,7 +608,7 @@ export class UniversalRadiologyDb {
             patientName: s.patient,
             umr: s.umr,
             description: `Examination completed over 24 hours ago but diagnostic report remains pending transcription/authorization.`,
-            timestamp: s.ordered || new Date().toISOString(),
+            timestamp: fallbackTs,
             assignedOwner: s.radiologist || "Dr. Rajesh Sharma (HOD)",
             status: "Open"
           })
@@ -539,7 +625,7 @@ export class UniversalRadiologyDb {
           patientName: s.patient || "Unknown Patient",
           umr: s.umr || "UNKNOWN",
           description: `Radiology examination record "${s.study || s.id}" has missing or unlinked patient demographic identification.`,
-          timestamp: s.ordered || new Date().toISOString(),
+          timestamp: fallbackTs,
           assignedOwner: "Radiology Reception / Medical Records",
           status: "Open"
         })
@@ -568,7 +654,7 @@ export class UniversalRadiologyDb {
       if (orderTs > 0) {
         synthesized.push({
           id: `AUD-ORD-${s.id}`,
-          timestamp: new Date(orderTs).toISOString(),
+          timestamp: safeToIsoDate(orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -584,7 +670,7 @@ export class UniversalRadiologyDb {
       if ((s.isPaid || s.paymentStatus === "Paid") && (s.paidAt || s.billingClearedAt)) {
         synthesized.push({
           id: `AUD-PAY-${s.id}`,
-          timestamp: new Date(s.paidAt || s.billingClearedAt || orderTs).toISOString(),
+          timestamp: safeToIsoDate(s.paidAt || s.billingClearedAt || orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -600,7 +686,7 @@ export class UniversalRadiologyDb {
       if (s.scanningStartedAt || s.scanStartedAt) {
         synthesized.push({
           id: `AUD-SCAN-START-${s.id}`,
-          timestamp: new Date(s.scanningStartedAt || s.scanStartedAt!).toISOString(),
+          timestamp: safeToIsoDate(s.scanningStartedAt || s.scanStartedAt || orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -613,10 +699,10 @@ export class UniversalRadiologyDb {
       }
 
       // 4. Scanning Completed
-      if (s.scanningCompletedAt || s.completedAt || s.normalizedStatus === "DONE") {
+      if (s.scanningCompletedAt || s.scanCompletedAt || s.completedAt || s.normalizedStatus === "DONE") {
         synthesized.push({
           id: `AUD-SCAN-DONE-${s.id}`,
-          timestamp: new Date(s.scanningCompletedAt || s.completedAt || orderTs).toISOString(),
+          timestamp: safeToIsoDate(s.scanningCompletedAt || s.scanCompletedAt || s.completedAt || orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -629,10 +715,10 @@ export class UniversalRadiologyDb {
       }
 
       // 5. Sent to Reporting Workspace
-      if (s.transferredToReportingAt || (s as any).transferredToReporting) {
+      if (s.transferredToReportingAt || s.reportingQueuedAt || (s as any).transferredToReporting || (s as any).sentToReporting) {
         synthesized.push({
           id: `AUD-TRANS-${s.id}`,
-          timestamp: new Date(s.transferredToReportingAt || s.completedAt || orderTs).toISOString(),
+          timestamp: safeToIsoDate(s.transferredToReportingAt || s.reportingQueuedAt || s.completedAt || orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -648,7 +734,7 @@ export class UniversalRadiologyDb {
       if (s.reportCreatedAt || (s as any).reportDraftSavedAt || s.normalizedReportStatus === "Draft") {
         synthesized.push({
           id: `AUD-DRAFT-${s.id}`,
-          timestamp: new Date(s.reportCreatedAt || (s as any).reportDraftSavedAt || orderTs).toISOString(),
+          timestamp: safeToIsoDate(s.reportCreatedAt || (s as any).reportDraftSavedAt || orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -661,10 +747,10 @@ export class UniversalRadiologyDb {
       }
 
       // 7. Report Finalized
-      if (s.finalizedAt || s.normalizedReportStatus === "Finalized") {
+      if (s.finalizedAt || s.signedAt || s.normalizedReportStatus === "Finalized") {
         synthesized.push({
           id: `AUD-FINAL-${s.id}`,
-          timestamp: new Date(s.finalizedAt || orderTs).toISOString(),
+          timestamp: safeToIsoDate(s.finalizedAt || s.signedAt || orderTs, s.orderDate),
           studyId: s.id,
           patientName: s.patient,
           umr: s.umr,
@@ -685,8 +771,8 @@ export class UniversalRadiologyDb {
     })
 
     return merged.sort((a, b) => {
-      const timeA = new Date(a.timestamp || 0).getTime()
-      const timeB = new Date(b.timestamp || 0).getTime()
+      const timeA = safeToTimestamp(a.timestamp)
+      const timeB = safeToTimestamp(b.timestamp)
       if (timeA !== timeB) return timeB - timeA
       return (b.id || "").localeCompare(a.id || "")
     })
@@ -755,9 +841,9 @@ export class UniversalRadiologyDb {
       if (s.status === "Cancelled" || (s as any).workflowStatus === "CANCELLED") return
 
       const orderTs = RadiologyWorkflowDb.getOrderCreationTimestamp(s)
-      const scanStartTs = s.scanningStartedAt || s.scanStartedAt ? new Date(s.scanningStartedAt || s.scanStartedAt!).getTime() : 0
-      const scanCompletedTs = s.scanningCompletedAt || s.completedAt ? new Date(s.scanningCompletedAt || s.completedAt!).getTime() : 0
-      const finalizedTs = s.finalizedAt ? new Date(s.finalizedAt).getTime() : 0
+      const scanStartTs = s.scanningStartedAt || s.scanStartedAt ? safeToTimestamp(s.scanningStartedAt || s.scanStartedAt, s.orderDate) : 0
+      const scanCompletedTs = s.scanningCompletedAt || s.scanCompletedAt || s.completedAt ? safeToTimestamp(s.scanningCompletedAt || s.scanCompletedAt || s.completedAt, s.orderDate) : 0
+      const finalizedTs = s.finalizedAt || s.signedAt ? safeToTimestamp(s.finalizedAt || s.signedAt, s.orderDate) : 0
 
       const effectiveScanStart = scanStartTs > 0 ? scanStartTs : scanCompletedTs
       if (orderTs > 0 && effectiveScanStart > orderTs) {

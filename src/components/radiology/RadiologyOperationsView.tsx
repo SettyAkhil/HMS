@@ -1209,24 +1209,7 @@ export default function RadiologyOperationsView({
           </div>
         </div>
 
-        {/* Top Right Actions */}
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => onOpenOrderModal?.()}
-            className="bg-[#1B4FD8] hover:bg-[#1740B4] text-white px-4 py-2 rounded-lg font-semibold text-[13px] flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>+ Order Investigation</span>
-          </button>
 
-          <button
-            onClick={handleRefresh}
-            className="p-2.5 border border-[#DDE2EC] rounded-lg bg-white hover:bg-slate-50 text-slate-600 shadow-2xs cursor-pointer transition-colors"
-            title="Reload worklist data"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-[#1B4FD8]" : ""}`} />
-          </button>
-        </div>
       </div>
 
       {/* ── 2. Examination Summary Cards (4 Cards) ── */}

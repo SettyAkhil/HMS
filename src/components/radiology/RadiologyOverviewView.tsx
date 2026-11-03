@@ -357,13 +357,7 @@ export default function RadiologyOverviewView({
                 <Clock className="w-4 h-4 text-[#1B4FD8]" />
                 Recent Department Activity
               </h3>
-              <button
-                onClick={() => setTick((t) => t + 1)}
-                className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                title="Refresh Activity"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
+
             </div>
 
             {auditEvents.length === 0 ? (

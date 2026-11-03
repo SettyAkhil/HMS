@@ -461,23 +461,7 @@ export default function UniversalRadiologyShell({
                   </button>
                 )}
 
-                {activeView !== "overview" && (
-                  <button
-                    onClick={() => setShowNewOrderModal(true)}
-                    className="bg-[#1B4FD8] hover:bg-[#1740B4] text-white px-3.5 py-1.5 rounded text-[12.5px] font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>+ Order Investigation</span>
-                  </button>
-                )}
 
-                <button
-                  onClick={() => setTick((t) => t + 1)}
-                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 p-2 rounded text-[12.5px] shadow-2xs cursor-pointer transition-colors"
-                  title="Refresh Department Data"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
               </div>
             )}
           </header>

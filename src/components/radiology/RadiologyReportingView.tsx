@@ -1373,15 +1373,7 @@ const templateContentCache = new Map<string, any>()
             <span>Report Templates</span>
           </button>
 
-          <button
-            onClick={handleRefresh}
-            className="p-1.5 border border-[#DDE2EC] rounded-lg bg-white hover:bg-slate-50 text-slate-600 shadow-2xs cursor-pointer transition-colors"
-            title="Reload reporting queue"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-[#1B4FD8]" : ""}`}
-            />
-          </button>
+
         </div>
       </div>
 

@@ -22,6 +22,7 @@ import { safeLocalStorageSetItem } from "../utils/storageQuotaManager"
 
 import { db, DBPatient, DBOPEncounter } from "./db";
 import { getDoctorConsultationFee } from "./doctorMaster";
+import { isRadiologyTest } from "../utils/testClassifier";
 
 import { ErDatabase, ErVisitRecord } from "./erDb"
 

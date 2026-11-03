@@ -14,12 +14,22 @@ type Duty = {
 export default function OnDutyStrip({ hmsModule, category, label }: { hmsModule: string; category?: string; label?: string }) {
   const [data, setData] = useState<Duty | null>(null)
   const [open, setOpen] = useState(false)
+
   useEffect(() => {
     let alive = true
     const load = () =>
       hr.get<Duty>("/api/v1/workforce/on-duty", { hms_module: hmsModule, category })
-        .then((d) => alive && setData(d))
-        .catch(() => alive && setData(null))
+        .then((d) => {
+          if (alive && d && Array.isArray(d.departments) && Array.isArray(d.staff)) {
+            setData(d)
+          } else if (alive) {
+            setData(null)
+          }
+        })
+        .catch(() => {
+          if (alive) setData(null)
+        })
+
     load()
     const t = setInterval(load, 120_000)
     return () => {
@@ -27,8 +37,13 @@ export default function OnDutyStrip({ hmsModule, category, label }: { hmsModule:
       clearInterval(t)
     }
   }, [hmsModule, category])
-  if (!data || !data.departments.length) return null
+
+  if (!data || !Array.isArray(data.departments) || !data.departments.length || !Array.isArray(data.staff)) {
+    return null
+  }
+
   const inCount = data.staff.filter((s) => s.checked_in).length
+
   return (
     <div className="mb-3 bg-white border border-slate-200 rounded-xl text-sm">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-4 py-2" aria-expanded={open}>

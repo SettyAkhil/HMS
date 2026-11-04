@@ -63,6 +63,14 @@ export interface InvoiceItem {
   orderedBy?: string
 
   orderedAt?: string
+  verifiedAt?: string
+  nurseVerifiedAt?: string
+  billingPendingAt?: string
+  scanningEligibleAt?: string
+  reportingTransferredAt?: string
+  reportDraftSavedAt?: string
+  reportSubmittedAt?: string
+  correctionRequestedAt?: string
 }
 
 export interface PaymentRecord {

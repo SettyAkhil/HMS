@@ -348,15 +348,11 @@ export default function RadiologyWorklistView({
   // Newly created examinations immediately appear at the top and survive browser refreshes.
   // Stable secondary tie-breaker: Examination ID descending.
   const sortedStudies = useMemo(() => {
-    return [...filteredStudies].sort((a, b) => {
-      const timeA = RadiologyWorkflowDb.getOrderCreationTimestamp(a)
-      const timeB = RadiologyWorkflowDb.getOrderCreationTimestamp(b)
-      if (timeA !== timeB) {
-        return timeB - timeA // Newest orders first (descending)
-      }
-      return (b.id || "").localeCompare(a.id || "")
-    })
-  }, [filteredStudies])
+    if (orderStatusFilter === "unverified") {
+      return RadiologyWorkflowDb.sortNurseVerificationQueue(filteredStudies)
+    }
+    return RadiologyWorkflowDb.sortWorklistOrders(filteredStudies)
+  }, [filteredStudies, orderStatusFilter])
 
   const paginatedStudies = useMemo(() => {
     const start = (currentPage - 1) * pageSize

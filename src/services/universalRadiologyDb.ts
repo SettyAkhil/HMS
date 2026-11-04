@@ -26,19 +26,19 @@ export function safeToIsoDate(raw: any, fallbackDateStr?: string): string {
     if (!raw) {
       return fallbackDateStr && !isNaN(new Date(fallbackDateStr).getTime())
         ? new Date(fallbackDateStr).toISOString()
-        : new Date().toISOString()
+        : ""
     }
 
     if (typeof raw === "number") {
-      if (isNaN(raw) || raw <= 0) return new Date().toISOString()
+      if (isNaN(raw) || raw <= 0) return ""
       const ms = raw < 10000000000 ? raw * 1000 : raw
       const d = new Date(ms)
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+      return isNaN(d.getTime()) ? "" : d.toISOString()
     }
 
     if (typeof raw === "string") {
       let trimmed = raw.trim()
-      if (!trimmed) return new Date().toISOString()
+      if (!trimmed) return ""
 
       // Replace bullet separators
       trimmed = trimmed.replace(/[•·]/g, " ").replace(/\s+/g, " ")
@@ -60,40 +60,44 @@ export function safeToIsoDate(raw: any, fallbackDateStr?: string): string {
       // 3. Time-only string (e.g. "04:30 PM", "16:30", "9:15 AM")
       const baseDate = fallbackDateStr && /^\d{4}-\d{2}-\d{2}/.test(fallbackDateStr)
         ? fallbackDateStr.slice(0, 10)
-        : new Date().toISOString().split("T")[0]
+        : (typeof raw === "string" && raw.match(/\b(20\d{2}-\d{2}-\d{2})\b/) ? raw.match(/\b(20\d{2}-\d{2}-\d{2})\b/)![1] : "")
 
-      const combined = new Date(`${baseDate} ${trimmed}`)
-      if (!isNaN(combined.getTime())) {
-        return combined.toISOString()
-      }
+      if (baseDate) {
+        const combined = new Date(`${baseDate} ${trimmed}`)
+        if (!isNaN(combined.getTime())) {
+          return combined.toISOString()
+        }
 
-      const matchTime = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i)
-      if (matchTime) {
-        let hours = parseInt(matchTime[1], 10)
-        const minutes = parseInt(matchTime[2], 10)
-        const seconds = matchTime[3] ? parseInt(matchTime[3], 10) : 0
-        const ampm = (matchTime[4] || "").toUpperCase()
-        if (ampm === "PM" && hours < 12) hours += 12
-        if (ampm === "AM" && hours === 12) hours = 0
-        const dTime = new Date(`${baseDate}T00:00:00`)
-        dTime.setHours(hours, minutes, seconds, 0)
-        if (!isNaN(dTime.getTime())) {
-          return dTime.toISOString()
+        const matchTime = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i)
+        if (matchTime) {
+          let hours = parseInt(matchTime[1], 10)
+          const minutes = parseInt(matchTime[2], 10)
+          const seconds = matchTime[3] ? parseInt(matchTime[3], 10) : 0
+          const ampm = (matchTime[4] || "").toUpperCase()
+          if (ampm === "PM" && hours < 12) hours += 12
+          if (ampm === "AM" && hours === 12) hours = 0
+          const dTime = new Date(`${baseDate}T00:00:00`)
+          dTime.setHours(hours, minutes, seconds, 0)
+          if (!isNaN(dTime.getTime())) {
+            return dTime.toISOString()
+          }
         }
       }
     }
   } catch {}
 
-  return new Date().toISOString()
+  return ""
 }
 
 export function safeToTimestamp(raw: any, fallbackDateStr?: string): number {
   try {
+    if (!raw) return 0
     const iso = safeToIsoDate(raw, fallbackDateStr)
+    if (!iso) return 0
     const t = new Date(iso).getTime()
-    return isNaN(t) ? Date.now() : t
+    return isNaN(t) || t <= 0 ? 0 : t
   } catch {
-    return Date.now()
+    return 0
   }
 }
 
@@ -158,6 +162,7 @@ export type ExceptionCategory =
   | "Missing Patient Linkage"
   | "Report Overdue"
   | "AI Service Anomaly"
+  | "Missing Workflow Timestamp"
 
 export type ExceptionSeverity = "Critical" | "High" | "Medium" | "Low"
 
@@ -967,6 +972,22 @@ export class UniversalRadiologyDb {
         }
       }
 
+      // 4b. Missing or Invalid Workflow Timestamp (Data Quality Rule)
+      if (orderTs <= 0 && !s.orderedAt && !s.createdAt && !s.ordered) {
+        exceptions.push({
+          id: `EX-TIMESTAMP-${s.id}`,
+          category: "Missing Workflow Timestamp",
+          severity: "Medium",
+          studyId: s.id,
+          patientName: s.patient || "Unknown Patient",
+          umr: s.umr || "UNKNOWN",
+          description: `Radiology examination record "${s.study || s.id}" has a missing or unparseable order creation timestamp. Flagged for clinical data verification.`,
+          timestamp: new Date().toISOString(),
+          assignedOwner: "Radiology Reception / Medical Records",
+          status: "Open"
+        })
+      }
+
       // 5. Missing Patient Linkage
       if (!s.patient || !s.umr) {
         exceptions.push({
@@ -988,6 +1009,19 @@ export class UniversalRadiologyDb {
   }
 
   // ── Audit Events ──────────────────────────────────────────────────────────────
+  public static sortAuditEvents(events: RadiologyAuditEvent[]): RadiologyAuditEvent[] {
+    return [...events].sort((a, b) => {
+      const timeA = safeToTimestamp((a as any).eventTimestamp || a.timestamp)
+      const timeB = safeToTimestamp((b as any).eventTimestamp || b.timestamp)
+      const effectiveA = timeA > 0 ? timeA : -Infinity
+      const effectiveB = timeB > 0 ? timeB : -Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveB - effectiveA // Newest activity strictly first
+      }
+      return (b.id || "").localeCompare(a.id || "")
+    })
+  }
+
   public static getAuditEvents(): RadiologyAuditEvent[] {
     let list: RadiologyAuditEvent[] = []
     try {
@@ -1170,12 +1204,7 @@ export class UniversalRadiologyDb {
       }
     })
 
-    return merged.sort((a, b) => {
-      const timeA = safeToTimestamp(a.timestamp)
-      const timeB = safeToTimestamp(b.timestamp)
-      if (timeA !== timeB) return timeB - timeA
-      return (b.id || "").localeCompare(a.id || "")
-    })
+    return this.sortAuditEvents(merged)
   }
 
   public static logAudit(event: Omit<RadiologyAuditEvent, "id" | "timestamp">): void {

@@ -447,16 +447,14 @@ export default function RadiologyOperationsView({
   // Newly eligible examinations are added at the bottom.
   // Sorted strictly by scanning eligibility timestamp (billingClearedAt / eligibleAt / paidAt).
   // Stable secondary sort: Examination ID ascending.
+  // Mandatory Chronological Ordering & Strict FIFO Enforcement:
+  // Ready to Start: Oldest eligible first (FIFO, scanningEligibleAt)
+  // In Progress: Earliest started first (scanStartedAt)
+  // Awaiting Clearance: Oldest pending first (FIFO, billingPendingAt)
+  // STAT priority exception: Urgently prioritized ahead while preserving FIFO within priority
   const sortedStudies = useMemo(() => {
-    return [...filteredStudies].sort((a, b) => {
-      const timeA = RadiologyWorkflowDb.getScanningEligibilityTimestamp(a)
-      const timeB = RadiologyWorkflowDb.getScanningEligibilityTimestamp(b)
-      if (timeA !== timeB) {
-        return timeA - timeB // FIFO: Oldest eligible first
-      }
-      return (a.id || "").localeCompare(b.id || "")
-    })
-  }, [filteredStudies])
+    return RadiologyWorkflowDb.sortScanningOperationsQueue(filteredStudies, statusTab)
+  }, [filteredStudies, statusTab])
 
   // Selected study selection logic
   const selectedStudy = useMemo(() => {

@@ -61,6 +61,13 @@ export type RadiologyReportStatus =
   | "Finalized"
 
 export interface ExtendedRadiologyRecord extends RadiologyStudyRecord {
+  verifiedAt?: string
+  billingPendingAt?: string
+  scanningEligibleAt?: string
+  reportingTransferredAt?: string
+  reportDraftSavedAt?: string
+  reportSubmittedAt?: string
+  correctionRequestedAt?: string
   opNumber?: string
   ipNumber?: string
   orderDate?: string
@@ -246,9 +253,10 @@ export class RadiologyWorkflowDb {
   }
 
   /**
-   * Deterministically resolves the examination order creation timestamp (in ms)
-   * for Examination Worklist ordering (Newest orders strictly first).
-   * Does NOT generate new timestamps on page refresh.
+   * Deterministically resolves the authoritative examination order timestamp (in ms)
+   * for Examination Worklist & Overview Recent Orders.
+   * Required ordering: Newest first (orderedAt descending).
+   * Never returns Date.now() or fabricates a timestamp.
    */
   static getOrderCreationTimestamp(study: Partial<ExtendedRadiologyRecord>): number {
     if (study.orderedAt) {
@@ -259,6 +267,15 @@ export class RadiologyWorkflowDb {
       const t = new Date(study.createdAt).getTime()
       if (!isNaN(t) && t > 0) return t
     }
+    if (study.orderDate && study.ordered) {
+      const combined = `${study.orderDate.slice(0, 10)} ${study.ordered}`.trim()
+      const t = new Date(combined).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
+    if (study.ordered) {
+      const t = new Date(study.ordered).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
     if (study.history && Array.isArray(study.history) && study.history.length > 0) {
       const firstLog = study.history[0]
       if (firstLog && firstLog.timestamp) {
@@ -266,30 +283,39 @@ export class RadiologyWorkflowDb {
         if (!isNaN(t) && t > 0) return t
       }
     }
-    if (study.orderDate && study.ordered) {
-      const combined = `${study.orderDate.slice(0, 10)} ${study.ordered}`.trim()
-      const tComb = new Date(combined).getTime()
-      if (!isNaN(tComb) && tComb > 0) return tComb
-    }
-    if (study.ordered) {
-      const t = new Date(study.ordered).getTime()
-      if (!isNaN(t) && t > 0) return t
-    }
     if (study.paidAt) {
       const t = new Date(study.paidAt).getTime()
       if (!isNaN(t) && t > 0) return t
     }
-    // Stable deterministic fallback: parse numeric suffix from ID (e.g. RAD-1030 -> 1030)
-    const num = parseInt((study.id || "").replace(/\D/g, ""), 10)
-    return !isNaN(num) && num > 0 ? num : 0
+    return 0
+  }
+
+  /**
+   * Deterministically resolves authoritative billing-pending timestamp (in ms)
+   * for Billing Clearance Queue & Scanning Awaiting Clearance (FIFO).
+   */
+  static getBillingPendingTimestamp(study: Partial<ExtendedRadiologyRecord>): number {
+    if (study.billingPendingAt) {
+      const t = new Date(study.billingPendingAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
+    if (study.nurseVerifiedAt || (study as any).verifiedAt) {
+      const t = new Date(study.nurseVerifiedAt || (study as any).verifiedAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
+    return this.getOrderCreationTimestamp(study)
   }
 
   /**
    * Deterministically resolves the scanning eligibility timestamp (in ms)
-   * for Scanning Operations FIFO queue (Oldest eligible first).
+   * for Scanning – Ready to Start FIFO queue (Oldest eligible first).
    * Newly eligible examinations have larger timestamps and appear at the bottom.
    */
   static getScanningEligibilityTimestamp(study: Partial<ExtendedRadiologyRecord>): number {
+    if (study.scanningEligibleAt) {
+      const t = new Date(study.scanningEligibleAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
     if (study.eligibleAt) {
       const t = new Date(study.eligibleAt).getTime()
       if (!isNaN(t) && t > 0) return t
@@ -319,15 +345,51 @@ export class RadiologyWorkflowDb {
       }
     }
     // If study was paid/cleared at order time, fallback to order creation time
-    return this.getOrderCreationTimestamp(study)
+    if (study.isPaid || study.paymentStatus === "Paid") {
+      return this.getOrderCreationTimestamp(study)
+    }
+    return 0
+  }
+
+  /**
+   * Deterministically resolves the scan started timestamp (in ms)
+   * for Scanning – In Progress (Earliest started first).
+   */
+  static getScanningStartedTimestamp(study: Partial<ExtendedRadiologyRecord>): number {
+    if (study.scanStartedAt) {
+      const t = new Date(study.scanStartedAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+      if (study.orderDate) {
+        const combined = new Date(`${study.orderDate.slice(0, 10)} ${study.scanStartedAt}`).getTime()
+        if (!isNaN(combined) && combined > 0) return combined
+      }
+    }
+    if (study.scanningStartedAt) {
+      const t = new Date(study.scanningStartedAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
+    if (study.history && Array.isArray(study.history)) {
+      for (const log of study.history) {
+        if (log.action?.includes("Scan Started") || log.action?.includes("Investigation Scan Started")) {
+          const t = new Date(log.timestamp).getTime()
+          if (!isNaN(t) && t > 0) return t
+        }
+      }
+    }
+    return 0
   }
 
   /**
    * Deterministically resolves the reporting queue transfer timestamp (in ms)
    * for Reporting Workspace FIFO queue (Oldest transferred first).
    * Preserves original queue position across draft saves, review submissions, and corrections.
+   * Does NOT use draft save time, review time, or correction time.
    */
   static getReportingQueueTimestamp(study: Partial<ExtendedRadiologyRecord>): number {
+    if (study.reportingTransferredAt) {
+      const t = new Date(study.reportingTransferredAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
     if (study.transferredToReportingAt) {
       const t = new Date(study.transferredToReportingAt).getTime()
       if (!isNaN(t) && t > 0) return t
@@ -342,6 +404,10 @@ export class RadiologyWorkflowDb {
     }
     if (study.scanningCompletedAt) {
       const t = new Date(study.scanningCompletedAt).getTime()
+      if (!isNaN(t) && t > 0) return t
+    }
+    if (study.scanCompletedAt) {
+      const t = new Date(study.scanCompletedAt).getTime()
       if (!isNaN(t) && t > 0) return t
     }
     if (study.completedAt) {
@@ -360,8 +426,7 @@ export class RadiologyWorkflowDb {
         }
       }
     }
-    // Fallback: order creation time
-    return this.getOrderCreationTimestamp(study)
+    return 0
   }
 
   /**
@@ -390,7 +455,225 @@ export class RadiologyWorkflowDb {
       const t = new Date(study.completedAt).getTime()
       if (!isNaN(t) && t > 0) return t
     }
-    return this.getOrderCreationTimestamp(study)
+    return 0
+  }
+
+  /**
+   * Standardized clinical priority weight.
+   * STAT / Emergency = 3
+   * Urgent = 2
+   * Routine / Elective = 1
+   */
+  static getPriorityWeight(priority?: string): number {
+    if (!priority) return 1
+    const p = priority.toUpperCase().trim()
+    if (p === "STAT" || p === "EMERGENCY") return 3
+    if (p === "URGENT") return 2
+    return 1
+  }
+
+  // ── Authoritative Queue Sorting Methods (Department-Wide Enforcement) ─────────
+
+  /**
+   * 1. Examination Worklist & Overview Recent Orders
+   * Required ordering: Newest first (orderedAt descending).
+   * Stable secondary tie-breaker: Examination ID descending.
+   */
+  static sortWorklistOrders(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const timeA = this.getOrderCreationTimestamp(a)
+      const timeB = this.getOrderCreationTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : -Infinity
+      const effectiveB = timeB > 0 ? timeB : -Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveB - effectiveA // Newest first
+      }
+      return (b.id || "").localeCompare(a.id || "")
+    })
+  }
+
+  /**
+   * 2. Nurse Verification Queue
+   * Required ordering: Oldest pending first (FIFO, ascending orderedAt).
+   * Clinical priority exception: STAT examinations receive priority over Routine.
+   * Stable secondary tie-breaker: Examination ID ascending.
+   */
+  static sortNurseVerificationQueue(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const weightA = this.getPriorityWeight(a.priority)
+      const weightB = this.getPriorityWeight(b.priority)
+      if (weightA !== weightB) {
+        return weightB - weightA // STAT priority exception
+      }
+      const timeA = this.getOrderCreationTimestamp(a)
+      const timeB = this.getOrderCreationTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : Infinity
+      const effectiveB = timeB > 0 ? timeB : Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveA - effectiveB // FIFO: Oldest pending first
+      }
+      return (a.id || "").localeCompare(b.id || "")
+    })
+  }
+
+  /**
+   * 3. Billing Clearance Queue & Scanning Awaiting Clearance
+   * Required ordering: Oldest pending first (FIFO, billingPendingAt).
+   * Clinical priority exception: STAT examinations receive priority over Routine.
+   * Stable secondary tie-breaker: Examination ID ascending.
+   */
+  static sortBillingClearanceQueue(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const weightA = this.getPriorityWeight(a.priority)
+      const weightB = this.getPriorityWeight(b.priority)
+      if (weightA !== weightB) {
+        return weightB - weightA // STAT priority exception
+      }
+      const timeA = this.getBillingPendingTimestamp(a)
+      const timeB = this.getBillingPendingTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : Infinity
+      const effectiveB = timeB > 0 ? timeB : Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveA - effectiveB // FIFO: Oldest pending first
+      }
+      return (a.id || "").localeCompare(b.id || "")
+    })
+  }
+
+  /**
+   * 4. Scanning – Ready to Start
+   * Required ordering: Oldest eligible first (FIFO, scanningEligibleAt).
+   * Clinical priority exception: STAT examinations receive priority over Routine.
+   * Stable secondary tie-breaker: Examination ID ascending.
+   */
+  static sortScanningReadyQueue(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const weightA = this.getPriorityWeight(a.priority)
+      const weightB = this.getPriorityWeight(b.priority)
+      if (weightA !== weightB) {
+        return weightB - weightA // STAT priority exception
+      }
+      const timeA = this.getScanningEligibilityTimestamp(a)
+      const timeB = this.getScanningEligibilityTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : Infinity
+      const effectiveB = timeB > 0 ? timeB : Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveA - effectiveB // FIFO: Oldest eligible first
+      }
+      return (a.id || "").localeCompare(b.id || "")
+    })
+  }
+
+  /**
+   * 5. Scanning – In Progress
+   * Required ordering: Earliest started first (scanStartedAt ascending).
+   * Clinical priority exception: STAT examinations receive priority over Routine.
+   * Stable secondary tie-breaker: Examination ID ascending.
+   */
+  static sortScanningInProgressQueue(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const weightA = this.getPriorityWeight(a.priority)
+      const weightB = this.getPriorityWeight(b.priority)
+      if (weightA !== weightB) {
+        return weightB - weightA // STAT priority exception
+      }
+      const timeA = this.getScanningStartedTimestamp(a)
+      const timeB = this.getScanningStartedTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : Infinity
+      const effectiveB = timeB > 0 ? timeB : Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveA - effectiveB // Earliest started first
+      }
+      return (a.id || "").localeCompare(b.id || "")
+    })
+  }
+
+  /**
+   * 6. Scanning Operations (Composite / Tab-Aware)
+   */
+  static sortScanningOperationsQueue(studies: ExtendedRadiologyRecord[], statusTab?: string): ExtendedRadiologyRecord[] {
+    if (statusTab === "ready_to_scan") {
+      return this.sortScanningReadyQueue(studies)
+    }
+    if (statusTab === "in_progress") {
+      return this.sortScanningInProgressQueue(studies)
+    }
+    if (statusTab === "awaiting_clearance") {
+      return this.sortBillingClearanceQueue(studies)
+    }
+    // "all" tab: In Progress first, then Ready to Scan, then Awaiting Clearance, respecting STAT priority
+    return [...studies].sort((a, b) => {
+      const weightA = this.getPriorityWeight(a.priority)
+      const weightB = this.getPriorityWeight(b.priority)
+      if (weightA !== weightB) {
+        return weightB - weightA
+      }
+      const stageA = a.normalizedStatus === "IN PROGRESS" || a.status === "In Progress" || a.scanningStage === 2 ? 3 : (a.isPaid || a.billingStatus === "Authorized Exception") ? 2 : 1
+      const stageB = b.normalizedStatus === "IN PROGRESS" || b.status === "In Progress" || b.scanningStage === 2 ? 3 : (b.isPaid || b.billingStatus === "Authorized Exception") ? 2 : 1
+      if (stageA !== stageB) {
+        return stageB - stageA
+      }
+      let timeA = 0
+      let timeB = 0
+      if (stageA === 3) {
+        timeA = this.getScanningStartedTimestamp(a)
+        timeB = this.getScanningStartedTimestamp(b)
+      } else if (stageA === 2) {
+        timeA = this.getScanningEligibilityTimestamp(a)
+        timeB = this.getScanningEligibilityTimestamp(b)
+      } else {
+        timeA = this.getBillingPendingTimestamp(a)
+        timeB = this.getBillingPendingTimestamp(b)
+      }
+      const effectiveA = timeA > 0 ? timeA : Infinity
+      const effectiveB = timeB > 0 ? timeB : Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveA - effectiveB
+      }
+      return (a.id || "").localeCompare(b.id || "")
+    })
+  }
+
+  /**
+   * 7. Reporting Workspace Queue
+   * Required ordering: Oldest transferred first (FIFO, reportingTransferredAt ascending).
+   * Clinical priority exception: STAT examinations receive priority over Routine.
+   * Stable secondary tie-breaker: Examination ID ascending.
+   */
+  static sortReportingWorkspaceQueue(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const weightA = this.getPriorityWeight(a.priority)
+      const weightB = this.getPriorityWeight(b.priority)
+      if (weightA !== weightB) {
+        return weightB - weightA // STAT priority exception
+      }
+      const timeA = this.getReportingQueueTimestamp(a)
+      const timeB = this.getReportingQueueTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : Infinity
+      const effectiveB = timeB > 0 ? timeB : Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveA - effectiveB // FIFO: Oldest transferred first
+      }
+      return (a.id || "").localeCompare(b.id || "")
+    })
+  }
+
+  /**
+   * 8. Finalized Reports
+   * Required ordering: Newest finalized first (finalizedAt descending).
+   * Stable secondary tie-breaker: Examination ID descending.
+   */
+  static sortFinalizedReports(studies: ExtendedRadiologyRecord[]): ExtendedRadiologyRecord[] {
+    return [...studies].sort((a, b) => {
+      const timeA = this.getReportFinalizedTimestamp(a)
+      const timeB = this.getReportFinalizedTimestamp(b)
+      const effectiveA = timeA > 0 ? timeA : -Infinity
+      const effectiveB = timeB > 0 ? timeB : -Infinity
+      if (effectiveA !== effectiveB) {
+        return effectiveB - effectiveA // Newest finalized first
+      }
+      return (b.id || "").localeCompare(a.id || "")
+    })
   }
 
   /**
@@ -460,6 +743,27 @@ export class RadiologyWorkflowDb {
       for (let i = 0; i < validRaw.length; i++) {
         const study = validRaw[i]
         const ext = study as ExtendedRadiologyRecord
+
+        // Populate canonical workflow timestamps deterministically without generating current time
+        const initialOrderTs = this.getOrderCreationTimestamp(ext)
+        if (!ext.orderedAt && initialOrderTs > 0) {
+          ext.orderedAt = new Date(initialOrderTs).toISOString()
+        }
+        if (!ext.billingPendingAt && ext.orderedAt) {
+          ext.billingPendingAt = ext.nurseVerifiedAt || ext.orderedAt
+        }
+        if (ext.nurseVerified && !ext.verifiedAt) {
+          ext.verifiedAt = ext.nurseVerifiedAt || ext.orderedAt
+        }
+        if (ext.eligibleAt && !ext.scanningEligibleAt) {
+          ext.scanningEligibleAt = ext.eligibleAt
+        }
+        if (ext.scanningStartedAt && !ext.scanStartedAt) {
+          ext.scanStartedAt = ext.scanningStartedAt
+        }
+        if (ext.transferredToReportingAt && !ext.reportingTransferredAt) {
+          ext.reportingTransferredAt = ext.transferredToReportingAt
+        }
 
         // Check if study is paid - AUTHORITATIVE ITEM & INVOICE LEVEL CHECK
         const sInv = (study.invoiceNo || "").toLowerCase().trim()
@@ -777,6 +1081,8 @@ export class RadiologyWorkflowDb {
       nurseVerified: true,
       nurseVerifiedBy: nurseName,
       nurseVerifiedAt: nowIso,
+      verifiedAt: nowIso,
+      billingPendingAt: study.billingPendingAt || nowIso,
       status: "Orders",
       history: updatedHistory,
     })
@@ -893,7 +1199,7 @@ export class RadiologyWorkflowDb {
       technician: staffName,
       scanningStage: 2,
       scanningStartedAt: study.scanningStartedAt || nowIso,
-      scanStartedAt: study.scanStartedAt || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      scanStartedAt: study.scanStartedAt || nowIso,
       patientVerified: true,
       safetyCleared: true,
       history: updatedHistory,
@@ -1031,11 +1337,11 @@ export class RadiologyWorkflowDb {
       workflowStatus: "COMPLETED",
       completedAt: nowIso,
       scanningCompletedAt: study.scanningCompletedAt || nowIso,
+      scanCompletedAt: study.scanCompletedAt || nowIso,
       completedBy: staffName,
       completionNotes: completionNotes || "Scan completed per standard clinical protocol.",
       technician: staffName,
       scanningStage: 3,
-      scanCompletedAt: study.scanCompletedAt || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       actualProtocol: completionNotes || study.actualProtocol,
       operationalNotes: completionNotes || study.operationalNotes,
       history: updatedHistory,
@@ -1128,6 +1434,7 @@ export class RadiologyWorkflowDb {
       sentToReporting: true,
       sentToReportingAt: study.sentToReportingAt || nowIso,
       transferredToReportingAt: study.transferredToReportingAt || nowIso,
+      reportingTransferredAt: study.reportingTransferredAt || study.transferredToReportingAt || nowIso,
       reportingQueuedAt: study.reportingQueuedAt || nowIso,
       sentToReportingBy: staffName,
       reportStatus: "Awaiting Report" as any,
@@ -1234,6 +1541,7 @@ export class RadiologyWorkflowDb {
       templateName: data.templateName,
       radiologist: data.specialistName,
       reportStatus: data.isFinal ? "Finalized" : "Draft",
+      reportDraftSavedAt: !data.isFinal ? nowIso : study.reportDraftSavedAt,
       finalizedAt: data.isFinal ? (study.finalizedAt || nowIso) : undefined,
       finalizedBy: data.isFinal ? (study.finalizedBy || data.specialistName) : undefined,
       finalizedRole: data.isFinal ? (study.finalizedRole || data.specialistRole) : undefined,
@@ -1517,6 +1825,7 @@ export class RadiologyWorkflowDb {
       workflowStatus: "SUBMITTED_FOR_REVIEW" as any,
       normalizedReportStatus: "Submitted for Review" as any,
       submittedForReviewAt: nowIso,
+      reportSubmittedAt: nowIso,
       submittedForReviewBy: author,
       submittedForReviewRole: authorRole,
       history: updatedHistory,
@@ -1578,6 +1887,7 @@ export class RadiologyWorkflowDb {
       normalizedReportStatus: "Correction Required" as any,
       correctionNotes: reason.trim(),
       returnedForCorrectionAt: nowIso,
+      correctionRequestedAt: nowIso,
       returnedForCorrectionBy: reviewerName,
       history: updatedHistory,
     } as any)

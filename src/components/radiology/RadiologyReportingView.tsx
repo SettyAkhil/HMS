@@ -551,15 +551,13 @@ export default function RadiologyReportingView({
   // Does NOT sort by patient registration date, order creation date, or report draft edit time.
   // Preserves queue position across draft saves, review submissions, and return for correction.
   // Stable secondary sort: Examination ID ascending.
+  // Strict FIFO Queue Ordering: Oldest transferred examination appears at top (#1).
+  // Newly transferred examinations enter at the bottom.
+  // Sorted strictly by reporting queue entry / transfer timestamp (reportingTransferredAt).
+  // Preserves queue position across draft saves, review submissions, and return for correction.
+  // STAT priority exception: Urgently prioritized while preserving FIFO within priority tier.
   const sortedStudies = useMemo(() => {
-    return [...filteredStudies].sort((a, b) => {
-      const timeA = RadiologyWorkflowDb.getReportingQueueTimestamp(a)
-      const timeB = RadiologyWorkflowDb.getReportingQueueTimestamp(b)
-      if (timeA !== timeB) {
-        return timeA - timeB // FIFO: Oldest transferred first
-      }
-      return (a.id || "").localeCompare(b.id || "")
-    })
+    return RadiologyWorkflowDb.sortReportingWorkspaceQueue(filteredStudies)
   }, [filteredStudies])
 
   // Paginated studies

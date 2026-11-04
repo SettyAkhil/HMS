@@ -64,6 +64,13 @@ export default function NurseVerificationTab({
     )
   }, [unverifiedStudies, searchQuery])
 
+  // Strict FIFO Ordering with STAT Clinical Urgency Exception:
+  // Oldest pending doctor orders appear strictly first (#1 at top).
+  // STAT priority orders are prioritized at top of FIFO queue.
+  const sortedUnverified = useMemo(() => {
+    return RadiologyWorkflowDb.sortNurseVerificationQueue(filteredUnverified)
+  }, [filteredUnverified])
+
   // Action: Nurse verifies investigation and forwards to Billing & Radiology
   const handleVerify = (study: ExtendedRadiologyRecord) => {
     setVerifyingId(study.id)
@@ -162,7 +169,7 @@ export default function NurseVerificationTab({
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filteredUnverified.map((study) => {
+              {sortedUnverified.map((study, idx) => {
                 return (
                   <div
                     key={study.id}
@@ -170,6 +177,7 @@ export default function NurseVerificationTab({
                   >
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">#{idx + 1} FIFO</span>
                         <span className="font-bold text-sm text-slate-900">{study.patient}</span>
                         <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700">
                           UMR: {study.umr || study.mrn}

@@ -90,6 +90,9 @@ export default function RadiologyOverviewView({
 
   // Single-pass computation for summary counters from persisted records
   const summary = useMemo(() => UniversalRadiologyDb.getOperationalSummary(), [tick])
+  const recentOrders = useMemo(() => {
+    return RadiologyWorkflowDb.sortWorklistOrders(studies).slice(0, 8)
+  }, [studies])
 
   return (
     <div className="space-y-6">
@@ -266,6 +269,92 @@ export default function RadiologyOverviewView({
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Recent Investigation Orders Live Feed (Strictly Newest First by orderedAt) */}
+          <div className="bg-white border border-[#DDE2EC] rounded-lg p-5 shadow-2xs">
+            <div className="flex items-center justify-between pb-3 border-b border-[#F1F5F9] mb-4">
+              <div>
+                <h3 className="text-[14px] font-bold text-[#0F172A] flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-[#1B4FD8]" />
+                  Recent Investigation Orders
+                </h3>
+                <p className="text-[12px] text-[#64748B]">
+                  Live chronological stream of incoming patient diagnostic orders (Strict Newest First)
+                </p>
+              </div>
+              <button
+                onClick={() => onNavigateToView("worklist")}
+                className="text-[12px] font-bold text-[#1B4FD8] hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>Full Worklist ({studies.length})</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+
+            {recentOrders.length === 0 ? (
+              <div className="py-8 text-center text-[12px] text-slate-400">
+                No recent examination orders recorded yet.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                {recentOrders.map((order, idx) => {
+                  const isMissingTs = RadiologyWorkflowDb.getOrderCreationTimestamp(order) <= 0
+                  return (
+                    <div
+                      key={order.id}
+                      onClick={() => onNavigateToView("worklist", order.id)}
+                      className="p-3 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] font-mono font-bold text-slate-400 w-6 text-center">
+                          #{idx + 1}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-[13px] text-slate-900">{order.patient}</span>
+                            <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                              {order.umr || order.mrn}
+                            </span>
+                            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded uppercase font-mono bg-blue-50 text-blue-700 border border-blue-200">
+                              {order.modality}
+                            </span>
+                            {order.priority === "STAT" && (
+                              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase font-mono bg-rose-600 text-white animate-pulse">
+                                STAT
+                              </span>
+                            )}
+                            {isMissingTs && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                                ⚠️ Missing Timestamp
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[12px] text-slate-600 mt-0.5 font-medium">
+                            {order.study} • <span className="text-slate-400">Ordered by {order.provider}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between text-right shrink-0">
+                        <span className="text-[11px] font-mono font-bold text-slate-600">
+                          {order.orderedAt ? new Date(order.orderedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : order.ordered}
+                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                            order.isPaid
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                          }`}>
+                            {order.isPaid ? "Paid" : "Pending Payment"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 

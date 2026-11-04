@@ -37,8 +37,8 @@ export default function HrDashboard({ onNavigate }: { onNavigate: (to: Dashboard
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">{greeting}</h2>
-          <p className="text-xs text-slate-500 font-medium">{now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · Real-time workforce metrics</p>
+          <h2 className="text-base font-semibold text-gray-900 tracking-tight">{greeting}</h2>
+          <p className="text-[11.5px] text-[#64748B] font-medium">{now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · Real-time workforce metrics</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <select className={filterCls} value={f.branch_id} onChange={(e) => setF({ ...f, branch_id: e.target.value })} aria-label="Branch">
@@ -80,21 +80,21 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
       <div className="grid xl:grid-cols-3 gap-4">
         <Panel title="Needs attention">
           {!d.attention.length ? (
-            <div className="flex items-center gap-2 text-sm text-[#007078] py-6 justify-center"><CheckCircle2 className="w-4 h-4" /> Nothing needs attention right now</div>
+            <div className="flex items-center gap-2 text-sm text-[#16A34A] py-6 justify-center"><CheckCircle2 className="w-4 h-4" /> Nothing needs attention right now</div>
           ) : (
             <ul className="space-y-2">
               {d.attention.map((x) => {
                 const Icon = x.severity === "critical" ? ShieldAlert : x.severity === "warning" ? AlertTriangle : Info
-                const tone = x.severity === "critical" ? "border-rose-200 bg-rose-50 text-rose-900" : x.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-800"
+                const tone = x.severity === "critical" ? "border-rose-200 bg-rose-50 text-rose-900" : x.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-[#DDE2EC] bg-[#F8FAFC] text-gray-800"
                 return (
                   <li key={x.kind}>
-                    <button onClick={() => onNavigate({ section: x.section as DashboardNav["section"] })} className={`w-full text-left flex gap-2.5 p-2.5 rounded-[8px] border ${tone} hover:brightness-[0.98]`}>
+                    <button onClick={() => onNavigate({ section: x.section as DashboardNav["section"] })} className={`w-full text-left flex gap-2.5 p-2.5 rounded border ${tone} hover:brightness-[0.98] transition cursor-pointer`}>
                       <Icon className="w-4 h-4 mt-0.5 shrink-0" />
                       <span className="flex-1 min-w-0">
-                        <span className="block text-sm font-medium">{x.title}</span>
-                        <span className="block text-xs opacity-80">{x.detail}</span>
+                        <span className="block text-sm font-semibold text-gray-900">{x.title}</span>
+                        <span className="block text-xs text-[#64748B]">{x.detail}</span>
                       </span>
-                      <ArrowRight className="w-3.5 h-3.5 mt-1 opacity-50" />
+                      <ArrowRight className="w-3.5 h-3.5 mt-1 text-[#64748B]" />
                     </button>
                   </li>
                 )
@@ -110,18 +110,18 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
             <div className="h-72">
               <ResponsiveContainer width="100%" height="88%">
                 <BarChart data={d.attendance_trend.map((x) => ({ ...x, day: new Date(`${x.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) }))} margin={{ top: 4, right: 8, bottom: 0, left: -16 }} barCategoryGap="22%">
-                  <CartesianGrid vertical={false} stroke="#eef2f7" />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} interval={1} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ fill: "#f1f5f9" }} contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#e2e8f0" }}
+                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} interval={1} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                  <Tooltip cursor={{ fill: "#F8FAFC" }} contentStyle={{ fontSize: 12, borderRadius: 4, borderColor: "#DDE2EC" }}
                     formatter={(v, n) => [v as number, SERIES.find((s) => s.key === n)?.label ?? String(n)]}
                     labelFormatter={(l, p) => `${l}${p?.[0]?.payload?.late ? ` · ${p[0].payload.late} late` : ""}`} />
                   {SERIES.map((s, i) => (
-                    <Bar key={s.key} dataKey={s.key} stackId="a" fill={s.color} stroke="#fff" strokeWidth={1} radius={i === SERIES.length - 1 ? [4, 4, 0, 0] : 0} maxBarSize={28} />
+                    <Bar key={s.key} dataKey={s.key} stackId="a" fill={s.color} stroke="#fff" strokeWidth={1} radius={i === SERIES.length - 1 ? [2, 2, 0, 0] : 0} maxBarSize={28} />
                   ))}
                 </BarChart>
               </ResponsiveContainer>
-              <ul className="flex flex-wrap justify-center gap-4 text-xs text-slate-600 -mt-1">
+              <ul className="flex flex-wrap justify-center gap-4 text-xs text-[#64748B] -mt-1">
                 {SERIES.map((s) => (
                   <li key={s.key} className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />{s.label}</li>
                 ))}
@@ -138,14 +138,14 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
               {d.department_presence.map((x) => {
                 const pct = x.scheduled ? Math.round((x.present / x.scheduled) * 100) : 0
                 return (
-                  <button key={x.department_id} onClick={() => onNavigate({ section: "attendance" })} className="w-full grid grid-cols-12 items-center gap-3 text-left group">
-                    <span className="col-span-4 text-sm text-slate-700 truncate group-hover:text-slate-900">{x.department}</span>
-                    <span className="col-span-5 h-2.5 rounded-full bg-slate-100 overflow-hidden flex" aria-label={`${pct}% present`}>
+                  <button key={x.department_id} onClick={() => onNavigate({ section: "attendance" })} className="w-full grid grid-cols-12 items-center gap-3 text-left group cursor-pointer hover:bg-gray-50/60 p-1 rounded transition-colors">
+                    <span className="col-span-4 text-sm font-medium text-gray-700 truncate group-hover:text-gray-900">{x.department}</span>
+                    <span className="col-span-5 h-2 rounded-full bg-gray-100 overflow-hidden flex" aria-label={`${pct}% present`}>
                       <span className="h-full" style={{ width: `${x.scheduled ? (x.present / x.scheduled) * 100 : 0}%`, background: "#0D9488" }} />
                       <span className="h-full border-l-2 border-white" style={{ width: `${x.scheduled ? (x.absent / x.scheduled) * 100 : 0}%`, background: "#E11D48" }} />
                     </span>
-                    <span className="col-span-3 text-xs text-slate-500 tabular-nums text-right">
-                      <span className="text-slate-900 font-medium">{x.present}</span>/{x.scheduled} present{x.not_arrived ? ` · ${x.not_arrived} not in yet` : ""}{x.absent ? ` · ${x.absent} absent` : ""}{x.leave ? ` · ${x.leave} leave` : ""}
+                    <span className="col-span-3 text-xs text-[#64748B] tabular-nums text-right">
+                      <span className="text-gray-900 font-semibold">{x.present}</span>/{x.scheduled} present{x.not_arrived ? ` · ${x.not_arrived} pending` : ""}{x.absent ? ` · ${x.absent} absent` : ""}{x.leave ? ` · ${x.leave} leave` : ""}
                     </span>
                   </button>
                 )
@@ -162,10 +162,10 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
               <ul className="space-y-1.5">
                 {rows.map(([k, v]) => (
                   <li key={k}>
-                    <button onClick={() => onNavigate({ section: "employees", filters: { employee_category: k, status: "active" } })} className="w-full flex items-center gap-2 text-sm group">
-                      <span className="w-32 text-left text-slate-600 truncate group-hover:text-slate-900">{categoryLabel(k)}</span>
-                      <span className="flex-1 h-2 rounded-full bg-slate-100"><span className="block h-2 rounded-full" style={{ width: `${(v / max) * 100}%`, background: TEAL }} /></span>
-                      <span className="w-8 text-right tabular-nums text-slate-900">{v}</span>
+                    <button onClick={() => onNavigate({ section: "employees", filters: { employee_category: k, status: "active" } })} className="w-full flex items-center gap-2 text-sm group cursor-pointer hover:bg-gray-50/60 p-1 rounded transition-colors">
+                      <span className="w-32 text-left text-gray-600 truncate group-hover:text-gray-900 font-medium">{categoryLabel(k)}</span>
+                      <span className="flex-1 h-2 rounded-full bg-gray-100"><span className="block h-2 rounded-full" style={{ width: `${(v / max) * 100}%`, background: TEAL }} /></span>
+                      <span className="w-8 text-right font-mono tabular-nums text-gray-900 font-semibold">{v}</span>
                     </button>
                   </li>
                 ))}
@@ -187,17 +187,17 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
           </dl>
         </Panel>
         <Panel title="Registrations expiring">
-          {!d.credentials.expiring.length ? <p className="text-sm text-slate-500 py-4 text-center">None in the next 60 days</p> : (
-            <ul className="divide-y divide-slate-100">
+          {!d.credentials.expiring.length ? <p className="text-sm text-[#64748B] py-4 text-center">None in the next 60 days</p> : (
+            <ul className="divide-y divide-[#EEF1F6]">
               {d.credentials.expiring.slice(0, 6).map((c) => (
                 <li key={`${c.employee_id}-${c.number}`}>
-                  <button className="w-full flex items-center gap-2.5 py-2 text-left hover:bg-slate-50 rounded" onClick={() => onNavigate({ section: "employees", employeeId: c.employee_id })}>
+                  <button className="w-full flex items-center gap-2.5 py-2 text-left hover:bg-gray-50 rounded transition-colors cursor-pointer" onClick={() => onNavigate({ section: "employees", employeeId: c.employee_id })}>
                     <Avatar name={c.employee_name} size="sm" />
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm text-slate-800 truncate">{c.employee_name}</span>
-                      <span className="block text-[11px] text-slate-500">{humanize(c.credential_type)} · {fmtDate(c.expires_on)}</span>
+                      <span className="block text-sm font-semibold text-gray-900 truncate">{c.employee_name}</span>
+                      <span className="block text-[11px] text-[#64748B]">{humanize(c.credential_type)} · {fmtDate(c.expires_on)}</span>
                     </span>
-                    <span className={`text-xs tabular-nums ${c.days_left < 0 ? "text-rose-700 font-medium" : c.days_left < 15 ? "text-amber-700" : "text-slate-500"}`}>{c.days_left < 0 ? "expired" : `${c.days_left} d`}</span>
+                    <span className={`text-xs font-mono tabular-nums ${c.days_left < 0 ? "text-rose-700 font-semibold" : c.days_left < 15 ? "text-amber-700 font-semibold" : "text-[#64748B]"}`}>{c.days_left < 0 ? "expired" : `${c.days_left} d`}</span>
                   </button>
                 </li>
               ))}
@@ -205,15 +205,15 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
           )}
         </Panel>
         <Panel title="Recent activity">
-          {!d.recent_activity.length ? <p className="text-sm text-slate-500">Nothing yet.</p> : (
+          {!d.recent_activity.length ? <p className="text-sm text-[#64748B]">Nothing yet.</p> : (
             <ul className="space-y-2.5">
               {d.recent_activity.slice(0, 7).map((r, i) => (
                 <li key={i}>
-                  <button className="w-full flex gap-2.5 text-left" onClick={() => onNavigate({ section: "employees", employeeId: r.employee_id })}>
+                  <button className="w-full flex gap-2.5 text-left hover:bg-gray-50 p-1.5 rounded transition-colors cursor-pointer" onClick={() => onNavigate({ section: "employees", employeeId: r.employee_id })}>
                     <Avatar name={r.employee_name} size="sm" />
                     <span className="min-w-0">
-                      <span className="block text-sm text-slate-800"><span className="font-medium">{r.employee_name}</span> · {r.summary}</span>
-                      <span className="block text-[11px] text-slate-400">{fmtDateTime(r.occurred_at)}</span>
+                      <span className="block text-xs text-gray-800"><span className="font-semibold text-gray-900">{r.employee_name}</span> · {r.summary}</span>
+                      <span className="block text-[10.5px] text-[#64748B]">{fmtDateTime(r.occurred_at)}</span>
                     </span>
                   </button>
                 </li>
@@ -228,15 +228,15 @@ function Body({ d, onNavigate }: { d: Dashboard & Extra; onNavigate: (to: Dashbo
 }
 
 function Hero({ icon: Icon, label, value, sub, tone, onClick }: { icon: typeof Users; label: string; value: React.ReactNode; sub: string; tone?: "teal" | "purple"; onClick?: () => void }) {
-  const accent = tone === "teal" ? "bg-blue-50 text-blue-600 border border-blue-100" : tone === "purple" ? "bg-indigo-50 text-indigo-600 border border-indigo-100" : "bg-slate-50 text-slate-600 border border-slate-200"
+  const accent = tone === "teal" ? "bg-blue-50 text-[#1B4FD8] border border-blue-100" : tone === "purple" ? "bg-indigo-50 text-indigo-600 border border-indigo-100" : "bg-gray-50 text-gray-600 border border-[#DDE2EC]"
   return (
-    <button onClick={onClick} className="text-left bg-white border border-slate-200 rounded-xl p-4 shadow-2xs hover:border-blue-300 hover:shadow-xs transition cursor-pointer">
+    <button onClick={onClick} className="text-left bg-white border border-[#DDE2EC] rounded p-4 shadow-2xs hover:border-[#1B4FD8] hover:shadow-xs transition cursor-pointer">
       <div className="flex items-center gap-2">
-        <span className={`w-8 h-8 rounded-lg inline-flex items-center justify-center shrink-0 ${accent}`}><Icon className="w-4 h-4" /></span>
-        <span className="text-xs font-semibold text-slate-500">{label}</span>
+        <span className={`w-8 h-8 rounded inline-flex items-center justify-center shrink-0 ${accent}`}><Icon className="w-4 h-4" /></span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-slate-900 mt-2 tabular-nums">{value}</div>
-      <div className="text-xs text-slate-500 mt-0.5">{sub}</div>
+      <div className="text-2xl font-bold font-mono text-gray-900 mt-2 tabular-nums">{value}</div>
+      <div className="text-[11.5px] text-[#64748B] mt-0.5">{sub}</div>
     </button>
   )
 }
@@ -244,10 +244,10 @@ function Hero({ icon: Icon, label, value, sub, tone, onClick }: { icon: typeof U
 function Stat({ label, value, sub, warn, onClick }: { label: string; value: React.ReactNode; sub?: string; warn?: boolean; onClick?: () => void }) {
   const Tag = onClick ? "button" : "div"
   return (
-    <Tag onClick={onClick} className={`text-left p-3 rounded-xl bg-slate-50/80 border border-slate-100 transition ${onClick ? "hover:bg-slate-100/80 cursor-pointer" : ""}`}>
-      <dt className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</dt>
-      <dd className={`text-base md:text-lg font-bold tabular-nums mt-0.5 ${warn ? "text-amber-700" : "text-slate-900"}`}>{value}</dd>
-      {sub && <dd className="text-[10px] text-slate-400 mt-0.5">{sub}</dd>}
+    <Tag onClick={onClick} className={`text-left p-3 rounded bg-[#F8FAFC] border border-[#DDE2EC] transition ${onClick ? "hover:bg-gray-100/80 cursor-pointer" : ""}`}>
+      <dt className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">{label}</dt>
+      <dd className={`text-base md:text-lg font-bold font-mono tabular-nums mt-0.5 ${warn ? "text-[#D97706]" : "text-gray-900"}`}>{value}</dd>
+      {sub && <dd className="text-[10px] text-[#64748B] mt-0.5">{sub}</dd>}
     </Tag>
   )
 }
@@ -262,7 +262,7 @@ function QuickActions({ onNavigate }: { onNavigate: (to: DashboardNav) => void }
   return (
     <div className="flex flex-wrap gap-2">
       {items.map(({ label, to, Icon }) => (
-        <button key={label} onClick={() => onNavigate(to)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-600 shadow-2xs transition-colors cursor-pointer">
+        <button key={label} onClick={() => onNavigate(to)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded border border-[#DDE2EC] bg-white text-gray-700 hover:border-[#1B4FD8] hover:text-[#1B4FD8] shadow-2xs transition-colors cursor-pointer">
           <Icon className="w-3.5 h-3.5" /> {label}
         </button>
       ))}

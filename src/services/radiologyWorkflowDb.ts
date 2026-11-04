@@ -1482,8 +1482,8 @@ export class RadiologyWorkflowDb {
 
     const wasCorrection = Boolean(
       study.returnedForCorrectionAt ||
-      study.reportStatus === "Needs Correction" ||
-      study.reportStatus === "Correction Required"
+      (study.reportStatus as string) === "Needs Correction" ||
+      (study.reportStatus as string) === "Correction Required"
     )
 
     const nowIso = new Date().toISOString()

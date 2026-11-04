@@ -235,11 +235,11 @@ function RosterBuilder({ canEdit }: { canEdit: boolean }) {
               <table className="text-xs border-separate border-spacing-0">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 bg-white px-4 py-2 text-left font-medium text-slate-500 min-w-[180px]">Staff</th>
+                    <th className="sticky left-0 bg-white px-4 py-2 text-left font-medium text-[#64748B] min-w-[180px]">Staff</th>
                     {dates.map((d) => {
                       const dt = new Date(`${d}T00:00:00`)
                       return (
-                        <th key={d} className={`px-1 py-2 font-medium text-center min-w-[64px] ${[0, 6].includes(dt.getDay()) ? "text-[#582C5F]" : "text-slate-500"}`}>
+                        <th key={d} className={`px-1 py-2 font-medium text-center min-w-[64px] ${[0, 6].includes(dt.getDay()) ? "text-[#1B4FD8]" : "text-[#64748B]"}`}>
                           {dt.toLocaleDateString("en-IN", { weekday: "short" })}
                           <div className="text-[10px] font-normal">{dt.getDate()}</div>
                         </th>
@@ -250,25 +250,25 @@ function RosterBuilder({ canEdit }: { canEdit: boolean }) {
                 <tbody>
                   {staff.data.items.map((e) => (
                     <tr key={e.id}>
-                      <td className="sticky left-0 bg-white px-4 py-1 border-t border-slate-100">
-                        <div className="text-slate-900 text-sm">{e.full_name}</div>
-                        <div className="text-[10px] text-slate-400">{e.designation ?? e.employee_category}</div>
+                      <td className="sticky left-0 bg-white px-4 py-1 border-t border-[#EEF1F6]">
+                        <div className="text-gray-900 text-sm font-semibold">{e.full_name}</div>
+                        <div className="text-[10px] text-[#64748B]">{e.designation ?? e.employee_category}</div>
                       </td>
                       {dates.map((d) => {
                         const v = value(e.id, d)
                         const t = tmplById[v]
                         const changed = `${e.id}|${d}` in draft
                         return (
-                          <td key={d} className="px-0.5 py-1 border-t border-slate-100">
+                          <td key={d} className="px-0.5 py-1 border-t border-[#EEF1F6]">
                             <select
                               disabled={!canEdit}
                               aria-label={`${e.full_name} ${d}`}
                               value={v}
                               onChange={(ev) => setDraft({ ...draft, [`${e.id}|${d}`]: ev.target.value })}
-                              className={`w-full rounded-[6px] border px-1 py-1 text-[11px] text-center appearance-none ${changed ? "ring-2 ring-amber-300" : ""} ${
-                                v === "OFF" ? "bg-slate-100 text-slate-500 border-slate-200" : t ? "border-transparent text-white" : "bg-white border-dashed border-slate-200 text-slate-300"
+                              className={`w-full rounded border px-1 py-1 text-[11px] text-center appearance-none ${changed ? "ring-2 ring-amber-300" : ""} ${
+                                v === "OFF" ? "bg-gray-100 text-[#64748B] border-[#DDE2EC]" : t ? "border-transparent text-white font-medium" : "bg-white border-dashed border-[#DDE2EC] text-gray-300"
                               }`}
-                              style={t ? { background: t.color ?? (t.is_night ? "#582C5F" : "#007078") } : undefined}
+                              style={t ? { background: t.color ?? (t.is_night ? "#582C5F" : "#1B4FD8") } : undefined}
                             >
                               <option value="">—</option>
                               <option value="OFF">Off</option>
@@ -287,10 +287,10 @@ function RosterBuilder({ canEdit }: { canEdit: boolean }) {
               </table>
             </div>
           )}
-          <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-500">
+          <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-[#64748B]">
             {templates.data?.map((t) => (
               <span key={t.id} className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded-sm" style={{ background: t.color ?? (t.is_night ? "#582C5F" : "#007078") }} />
+                <span className="w-3 h-3 rounded-xs" style={{ background: t.color ?? (t.is_night ? "#582C5F" : "#1B4FD8") }} />
                 {t.code} {hhmm(t.start_time)}–{hhmm(t.end_time)}
                 {t.crosses_midnight ? " (+1)" : ""}
               </span>
@@ -344,7 +344,7 @@ function RotationDrawer({ rosterId, staff, templates, onClose, onDone }: { roste
         <input type="checkbox" checked={stagger} onChange={(e) => setStagger(e.target.checked)} /> Stagger staff so coverage spreads across the pattern
       </label>
       <Field label="Staff">
-        <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-[6px] p-2 space-y-1">
+        <div className="max-h-72 overflow-y-auto border border-[#DDE2EC] rounded p-2 space-y-1">
           {staff.map((s) => (
             <label key={s.id} className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={picked.includes(s.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, s.id] : picked.filter((x) => x !== s.id))} />
@@ -395,7 +395,7 @@ function Templates({ canEdit }: { canEdit: boolean }) {
               </td>
               <td className="px-4 py-2 whitespace-nowrap">
                 {hhmm(t.start_time)}–{hhmm(t.end_time)}
-                {t.crosses_midnight && <span className="text-[11px] text-slate-400"> next day</span>}
+                {t.crosses_midnight && <span className="text-[11px] text-[#64748B]"> next day</span>}
               </td>
               <td className="px-4 py-2">{t.break_minutes}m</td>
               <td className="px-4 py-2">
@@ -538,7 +538,7 @@ function Swaps() {
   if (list.loading && !list.data) return <Loading />
   if (list.error) return <ErrorState error={list.error} onRetry={list.reload} />
   return (
-    <Panel title="Swap and replacement requests" actions={<span className="text-[11px] text-slate-500">Staff raise these from My HR; decisions are made under Approvals</span>}>
+    <Panel title="Swap and replacement requests" actions={<span className="text-[11px] text-[#64748B]">Staff raise these from My HR; decisions are made under Approvals</span>}>
       {!list.data?.length ? (
         <Empty title="No swap requests" />
       ) : (
@@ -547,9 +547,9 @@ function Swaps() {
             <tr key={s.id}>
               <td className="px-4 py-2">{fmtDate(s.work_date)}</td>
               <td className="px-4 py-2 capitalize">{s.kind}</td>
-              <td className="px-4 py-2">{s.requester}</td>
-              <td className="px-4 py-2">{s.counterpart}</td>
-              <td className="px-4 py-2 text-slate-600 max-w-xs truncate">{s.reason}</td>
+              <td className="px-4 py-2 font-medium text-gray-900">{s.requester}</td>
+              <td className="px-4 py-2 text-gray-700">{s.counterpart}</td>
+              <td className="px-4 py-2 text-gray-700 max-w-xs truncate">{s.reason}</td>
               <td className="px-4 py-2">
                 <StatusBadge value={s.status === "approved" ? "success" : s.status} label={s.status} />
               </td>
@@ -585,11 +585,11 @@ function Handovers() {
       ) : !list.data?.length ? (
         <Empty title="No handovers recorded" hint="Staff record handovers at the end of their shift from My HR." />
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-[#EEF1F6]">
           {list.data.map((h) => (
             <li key={h.id} className="py-2 text-sm">
               <div className="flex justify-between gap-2">
-                <span className="text-slate-900">
+                <span className="text-gray-900 font-medium">
                   {h.from_name} → {h.to_name ?? "next shift"} · {fmtDate(h.work_date)}
                 </span>
                 {h.acknowledged_at ? (
@@ -600,7 +600,7 @@ function Handovers() {
                   </Btn>
                 )}
               </div>
-              <p className="text-slate-600 whitespace-pre-wrap mt-1">{h.notes}</p>
+              <p className="text-gray-700 whitespace-pre-wrap mt-1 text-xs">{h.notes}</p>
             </li>
           ))}
         </ul>

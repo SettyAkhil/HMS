@@ -1,6 +1,6 @@
 // Dedicated Enterprise HR & Workforce Management Workspace.
 // Controlled via the main application sidebar navigation.
-// Optimized for instantaneous response time and zero loading waterfalls.
+// Standardized on the enterprise hospital design system.
 import { useEffect, useState, type ReactNode } from "react"
 import { hr } from "../../services/hr/client"
 import HrDashboard, { type DashboardNav } from "./HrDashboard"
@@ -120,12 +120,12 @@ export default function HrWorkspace({
 
   if (showLegacy && legacy) {
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full bg-[#F0F2F5]">
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-800">
           <span>Viewing classic HRMS view</span>
           <button
             onClick={() => setShowLegacy(false)}
-            className="font-bold underline text-blue-700 hover:text-blue-900 cursor-pointer"
+            className="font-bold underline text-[#1B4FD8] hover:text-[#1E40AF] cursor-pointer"
           >
             ← Back to Enterprise HR Workspace
           </button>
@@ -136,9 +136,9 @@ export default function HrWorkspace({
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[#F4F6FA] text-slate-800 font-sans">
-      {/* ── Main Workspace Body (Renders immediately without blocking waterfalls) ── */}
-      <div className="flex-1 bg-[#F4F6FA] overflow-y-auto p-4 md:p-6 space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 bg-[#F0F2F5] text-gray-900 font-sans">
+      {/* ── Main Workspace Body (Controlled directly via Main Sidebar) ── */}
+      <div className="flex-1 bg-[#F0F2F5] overflow-y-auto p-5 space-y-4">
         {authError ? (
           <ErrorState error={authError} />
         ) : (

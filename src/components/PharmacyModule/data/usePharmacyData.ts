@@ -163,11 +163,16 @@ export function usePharmacyData() {
   )
 
   const isRefreshing = useRef(false)
+  const hasPendingRefresh = useRef(false)
   const debounceTimer = useRef<any>(null)
 
   const refresh = useCallback(() => {
-    if (isRefreshing.current) return
+    if (isRefreshing.current) {
+      hasPendingRefresh.current = true
+      return
+    }
     isRefreshing.current = true
+    hasPendingRefresh.current = false
     try {
       setMedicines(PharmacyDatabase.getMedicines())
       setPrescriptions(PharmacyDatabase.getPrescriptions())
@@ -188,6 +193,10 @@ export function usePharmacyData() {
       setWriteOffs(PharmacyDatabase.getWriteOffs())
     } finally {
       isRefreshing.current = false
+      if (hasPendingRefresh.current) {
+        hasPendingRefresh.current = false
+        setTimeout(refresh, 20)
+      }
     }
   }, [])
 
@@ -204,14 +213,19 @@ export function usePharmacyData() {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
       debounceTimer.current = setTimeout(() => {
         refresh()
-      }, 50)
+      }, 30)
     }
 
+    const unsubPharmacy = PharmacyDatabase.subscribe(handleUpdate)
     window.addEventListener("hospai_pharmacy_updated", handleUpdate)
     window.addEventListener("storage", handleUpdate)
 
+    // Immediate refresh on mount to capture any prescriptions dispatched right before opening
+    refresh()
+
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      unsubPharmacy()
       window.removeEventListener("hospai_pharmacy_updated", handleUpdate)
       window.removeEventListener("storage", handleUpdate)
     }
@@ -562,26 +576,44 @@ export function usePharmacyData() {
   }, [mappedMedicines, expiringMedicines, prescriptions, notifications])
 
   const mappedPrescriptions = useMemo(() => {
-    return prescriptions.map((p) => ({
-      id: p.id,
-      patient: p.patientName,
-      age: p.age || 45,
-      gender: p.gender || "Male",
-      contact: (p as any).contact || (p as any).phone || p.patientId || "",
-      doctor: p.doctorName,
-      department: p.department,
-      regNo: (p as any).regNo || "",
-      date: p.date,
-      diagnosis: p.diagnosis || "N/A",
-      items: p.items ? p.items.length : 0,
-      priority: p.priority || "normal",
-      status: prescriptionStage(p.status),
-      pharmacist: p.verifiedBy || null,
-      arrivalTime: p.arrivalTime || (p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""),
-      time: p.arrivalTime || (p as any).time || (p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""),
-      rawItems: p.items || [],
-      verificationNotes: p.verificationNotes || "",
-    }))
+    return [...prescriptions]
+      .filter((p) => p && typeof p === "object" && p.id)
+      .sort((a, b) => {
+        const getTimeSafe = (p: AppPrescription) => {
+          if (p.createdAt) {
+            const t = new Date(p.createdAt).getTime()
+            if (!isNaN(t)) return t
+          }
+          if (p.date) {
+            const t = new Date(p.date).getTime()
+            if (!isNaN(t)) return t
+          }
+          return 0
+        }
+        return getTimeSafe(b) - getTimeSafe(a)
+      })
+      .map((p) => ({
+        id: p.id,
+        patient: p.patientName || "Unknown Patient",
+        age: p.age || 45,
+        gender: p.gender || "Male",
+        contact: (p as any).contact || (p as any).phone || p.patientId || p.uhid || "",
+        doctor: p.doctorName || "Attending Physician",
+        department: p.department || "General Medicine",
+        regNo: (p as any).regNo || p.visitId || p.uhid || "",
+        date: p.date || (p.createdAt ? p.createdAt.split("T")[0] : new Date().toISOString().split("T")[0]),
+        diagnosis: p.diagnosis || "N/A",
+        items: Array.isArray(p.items) ? p.items.length : 0,
+        priority: p.priority || "Normal",
+        status: prescriptionStage(p.status),
+        pharmacist: p.verifiedBy || null,
+        arrivalTime: p.arrivalTime || (p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""),
+        time: p.arrivalTime || (p as any).time || (p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""),
+        rawItems: Array.isArray(p.items) ? p.items : [],
+        verificationNotes: p.verificationNotes || "",
+        imageUrl: p.imageUrl,
+        createdAt: p.createdAt,
+      }))
   }, [prescriptions])
 
   const mappedSuppliers = useMemo(() => {

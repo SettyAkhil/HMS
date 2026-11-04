@@ -68,19 +68,19 @@ export default function ApprovalsSection({ isAdmin }: { isAdmin: boolean }) {
         <Panel>
           <Table head={["Request", "Type", "Raised by", "Step", "Status", "Raised", ""]}>
             {list.data.map((a) => (
-              <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(a)}>
-                <td className="px-4 py-2 text-slate-900">{a.title}</td>
-                <td className="px-4 py-2 text-slate-600">{humanize(a.workflow_code)}</td>
-                <td className="px-4 py-2 text-slate-600">{a.requester_name ?? a.requester_username}</td>
-                <td className="px-4 py-2 text-slate-600">
+              <tr key={a.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => setOpen(a)}>
+                <td className="px-4 py-2 font-semibold text-gray-900">{a.title}</td>
+                <td className="px-4 py-2 text-gray-700">{humanize(a.workflow_code)}</td>
+                <td className="px-4 py-2 text-gray-700">{a.requester_name ?? a.requester_username}</td>
+                <td className="px-4 py-2 text-gray-700">
                   {a.status === "pending" ? `${a.current_index + 1}/${a.steps.length}: ${a.steps[a.current_index]?.name}` : "—"}
                   {a.escalated && <span className="ml-1 text-[11px] text-rose-700">escalated</span>}
                 </td>
                 <td className="px-4 py-2">
                   <StatusBadge value={a.status === "approved" ? "success" : a.status} label={humanize(a.status)} />
                 </td>
-                <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">{fmtDateTime(a.created_at)}</td>
-                <td className="px-4 py-2 text-right text-xs text-[#007078]">{a.can_act ? "Review" : "View"}</td>
+                <td className="px-4 py-2 text-xs text-[#64748B] whitespace-nowrap">{fmtDateTime(a.created_at)}</td>
+                <td className="px-4 py-2 text-right text-xs font-semibold text-[#1B4FD8]">{a.can_act ? "Review" : "View"}</td>
               </tr>
             ))}
           </Table>
@@ -134,33 +134,33 @@ export function ApprovalDrawer({ approval, onClose, onDone }: { approval: Approv
         {approval.steps.map((s, i) => (
           <li key={i} className="flex items-center gap-2 text-sm">
             <span
-              className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center ${
+              className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center font-semibold ${
                 i < approval.current_index || approval.status === "approved"
-                  ? "bg-[#007078] text-white"
+                  ? "bg-[#1B4FD8] text-white"
                   : i === approval.current_index && approval.status === "pending"
-                    ? "border-2 border-[#007078] text-[#007078]"
-                    : "bg-slate-100 text-slate-400"
+                    ? "border-2 border-[#1B4FD8] text-[#1B4FD8]"
+                    : "bg-gray-100 text-[#64748B]"
               }`}
             >
               {i + 1}
             </span>
-            {s.name}
-            <span className="text-[11px] text-slate-400">{humanize(s.approver_type)}</span>
+            <span className="font-medium text-gray-900">{s.name}</span>
+            <span className="text-[11px] text-[#64748B] font-mono">({humanize(s.approver_type)})</span>
           </li>
         ))}
       </ol>
-      {approval.waiting_reason && approval.status === "pending" && <p className="text-xs text-slate-500 mb-3">{approval.waiting_reason}</p>}
-      {approval.delegated_to && <p className="text-xs text-slate-500 mb-3">Delegated to {approval.delegated_to}</p>}
-      <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">History</h4>
+      {approval.waiting_reason && approval.status === "pending" && <p className="text-xs text-[#64748B] mb-3">{approval.waiting_reason}</p>}
+      {approval.delegated_to && <p className="text-xs text-[#64748B] mb-3">Delegated to {approval.delegated_to}</p>}
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">History</h4>
       <ul className="text-sm space-y-1 mb-4">
-        <li className="text-slate-600">
-          Raised by {approval.requester_name ?? approval.requester_username} · {fmtDateTime(approval.created_at)}
+        <li className="text-gray-700">
+          Raised by <strong className="text-gray-900">{approval.requester_name ?? approval.requester_username}</strong> · {fmtDateTime(approval.created_at)}
         </li>
         {approval.actions.map((a, i) => (
-          <li key={i} className="text-slate-600">
-            {humanize(a.action)} by {a.actor}
+          <li key={i} className="text-gray-700">
+            {humanize(a.action)} by <span className="font-medium text-gray-900">{a.actor}</span>
             {a.delegated_to && ` → ${a.delegated_to}`} · {fmtDateTime(a.at)}
-            {a.comment && <div className="text-xs text-slate-500 italic">“{a.comment}”</div>}
+            {a.comment && <div className="text-xs text-[#64748B] italic">“{a.comment}”</div>}
           </li>
         ))}
       </ul>
@@ -213,8 +213,8 @@ function Rules() {
       <Table head={["Workflow", "Steps", "Self-approval", "Active", ""]}>
         {wfs.data!.map((w) => (
           <tr key={w.code}>
-            <td className="px-4 py-2 text-slate-900">{w.name}</td>
-            <td className="px-4 py-2 text-slate-600 text-xs">
+            <td className="px-4 py-2 font-semibold text-gray-900">{w.name}</td>
+            <td className="px-4 py-2 text-gray-700 text-xs">
               {w.steps.map((s) => `${s.name}${s.condition ? ` (if ${s.condition.field} ${s.condition.op} ${s.condition.value})` : ""}`).join(" → ")}
             </td>
             <td className="px-4 py-2">{w.allow_self_approval ? "Allowed" : "No"}</td>
@@ -286,7 +286,7 @@ function Rules() {
                   <XIcon className="w-3.5 h-3.5" />
                 </Btn>
               </div>
-              {s.condition && <p className="col-span-12 text-[11px] text-slate-500">Applies only when {s.condition.field} {s.condition.op} {String(s.condition.value)}</p>}
+              {s.condition && <p className="col-span-12 text-[11px] text-[#64748B]">Applies only when {s.condition.field} {s.condition.op} {String(s.condition.value)}</p>}
             </div>
           ))}
           <Btn onClick={() => setEdit({ ...edit, steps: [...edit.steps, { sequence: edit.steps.length + 1, name: "HR", approver_type: "permission", permission: PERMS[0], condition: null, escalate_after_hours: null }] })}>

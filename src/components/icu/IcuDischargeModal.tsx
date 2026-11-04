@@ -1,10 +1,12 @@
-import React, { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect } from "react"
 import type { IcuPatient } from "../ICU"
 import { formatDateTimeIST } from "../../lib/format"
-import { BedDatabase } from "../../services/bedDb"
+import type { BedRecord } from "../../services/bedDb"
+import { apiFetch } from "../../lib/api"
 import { DocumentBrandHeader, PoweredByKalpra, useBranding } from "../branding/DocumentBranding"
-import { getPatientStayDays, generateSeedRecord } from "./icuSeedData"
-import { flowsheetSummary, type FlowsheetRecord } from "./IcuFlowsheet"
+import { getPatientStayDays } from "./icuSeedData"
+import { countEntries, loadRecord, type FlowsheetRecord } from "./IcuFlowsheet"
+import { deriveLiveState } from "./icuLive"
 
 export type IcuDischargeRecord = {
   id: string
@@ -36,54 +38,18 @@ interface IcuDischargeModalProps {
 
 const RECEPTION_DISCHARGES_KEY = "hms_icu_reception_discharges_v1"
 
-export const INITIAL_ICU_DISCHARGES: IcuDischargeRecord[] = [
-  {
-    id: "ICU-DISC-10088",
-    patientName: "Appanna Chinnapati",
-    mrn: "100888",
-    bed: "SICU-3",
-    unit: "Surgical ICU (SICU)",
-    dischargeType: "Ward Stepdown",
-    destinationWard: "3N Medical/Surgical",
-    dischargeCondition: "Stable",
-    dischargeDiagnosis:
-      "Post-op Day 10 s/p Exploratory Laparotomy, Splenectomy, and Jejunal Repair for Hemoperitoneum & Grade IV Splenic Rupture — Cleared for Ward Stepdown",
-    attendingDoctor: "Dr. Vance (Surgery & Critical Care)",
-    nurseInCharge: "RN Murphy",
-    ventStatus: "Successfully Extubated Day 5, Weaned to Room Air (SpO2 98%)",
-    infusionClearance:
-      "All vasopressors (Norepinephrine) stopped on Day 4. Maintenance IV fluids stopped. Peripheral cannula patent.",
-    dischargedAt: "2026-10-14T11:30:00.000Z",
-    admissionDate: "2026-10-04T07:45:00.000Z",
-    lengthOfStayDays: 10,
-    receptionStatus: "Bed Allocated at Reception",
-    clinicalSummaryNotes:
-      "Patient Appanna Chinnapati completed 10 full days in Surgical ICU following emergency laparotomy and splenectomy for polytrauma/hemoperitoneum. Mechanical ventilation successfully weaned and extubated on Day 5. Abdominal drains removed on Day 8. Afebrile, hemodynamically stable without inotropes, surgical wound healthy without soakage. Tolerating soft diet with active bowel sounds. Transferred to 3N Medical/Surgical Ward for final convalescence and discharge planning.",
-  },
-]
+// Ids of the demo hand-off that used to be seeded into every browser. It is
+// filtered out of anything already stored, so only real discharges remain.
+const RETIRED_DEMO_IDS = new Set(["ICU-DISC-10088"])
 
 export function getDischargedIcuPatients(): IcuDischargeRecord[] {
   try {
     const raw = localStorage.getItem(RECEPTION_DISCHARGES_KEY)
-    if (!raw) {
-      try {
-        localStorage.setItem(RECEPTION_DISCHARGES_KEY, JSON.stringify(INITIAL_ICU_DISCHARGES))
-      } catch {}
-      return INITIAL_ICU_DISCHARGES
-    }
+    if (!raw) return []
     const parsed: IcuDischargeRecord[] = JSON.parse(raw)
-    const currentIds = new Set(parsed.map((r) => r.id))
-    const missing = INITIAL_ICU_DISCHARGES.filter((r) => !currentIds.has(r.id))
-    if (missing.length > 0) {
-      const merged = [...parsed, ...missing]
-      try {
-        localStorage.setItem(RECEPTION_DISCHARGES_KEY, JSON.stringify(merged))
-      } catch {}
-      return merged
-    }
-    return parsed
+    return Array.isArray(parsed) ? parsed.filter((r) => !RETIRED_DEMO_IDS.has(r.id)) : []
   } catch {
-    return INITIAL_ICU_DISCHARGES
+    return []
   }
 }
 
@@ -115,114 +81,58 @@ export function updateIcuDischargeStatus(
 }
 
 /**
- * Extracts and compiles complete day-wise clinical flowsheet parameters (Day 10 down to Day 1)
+ * Day-wise ICU journey for the print sheet, from what was charted on each day
+ * (latest value of the day). Uncharted values read "—"; nothing is invented.
  */
 export function getPatientDayRecords(
   patientId: string,
   totalDays: number = 10,
-  isManualCharting: boolean = false,
+  _isManualCharting: boolean = true,
 ) {
   const stayDays = getPatientStayDays(totalDays)
   return stayDays.map((sd) => {
-    let rec: FlowsheetRecord
-    let hasUserData = false
-    try {
-      const raw = localStorage.getItem(`icu.flowsheet.${patientId}.${sd.dateStr}`)
-      if (raw) {
-        rec = JSON.parse(raw)
-        hasUserData = true
-      } else if (isManualCharting) {
-        rec = {
-          patientId,
-          date: sd.dateStr,
-          fields: {},
-          tables: {},
-          grids: {},
-          hourly: {},
-          scales: {},
-          updatedAt: "",
-        }
-      } else {
-        rec = generateSeedRecord(patientId, sd.dayNumber, sd.dateStr, totalDays)
-      }
-    } catch {
-      rec = isManualCharting
-        ? {
-            patientId,
-            date: sd.dateStr,
-            fields: {},
-            tables: {},
-            grids: {},
-            hourly: {},
-            scales: {},
-            updatedAt: "",
-          }
-        : generateSeedRecord(patientId, sd.dayNumber, sd.dateStr, totalDays)
-    }
-    let summary: any = null
-    try {
-      summary = flowsheetSummary(patientId, sd.dateStr)
-    } catch {}
-
-    const hr = rec.hourly?.observations?.[`12:00|hr`] || (isManualCharting ? "—" : (96 + (10 - sd.dayNumber) * 2))
-    const bp = rec.hourly?.observations?.[`12:00|bp`] || (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "98/62" : "110/70"))
-    const temp = rec.hourly?.observations?.[`12:00|temp`] || (isManualCharting ? "—" : (sd.dayNumber <= 2 ? "38.6" : "37.2"))
-    const cvp = rec.hourly?.observations?.[`12:00|cvp`] || (isManualCharting ? "—" : "12")
-    const ventMode = rec.hourly?.observations?.[`12:00|vent_mode`] || (isManualCharting ? "—" : (sd.dayNumber <= 5 ? "A/C-VC" : sd.dayNumber <= 7 ? "SIMV+PS" : "Weaned / Room Air"))
-    const fio2 = rec.hourly?.observations?.[`12:00|fio2`] || (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "60%" : sd.dayNumber <= 5 ? "45%" : "21%"))
-    const peep = rec.hourly?.observations?.[`12:00|peep`] || (isManualCharting ? "—" : (sd.dayNumber <= 5 ? "6 cmH2O" : "0"))
-    const spo2 = rec.hourly?.observations?.[`12:00|spo2`] || (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "94%" : "98%"))
-    const gcs = rec.scales?.gcs?.[`12:00|eyes`] ? "14/15" : (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "11/15" : "15/15"))
-    const rass = rec.hourly?.rass?.[`12:00|score`] || (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "-1 Drowsy" : "0 Alert and calm"))
-    const intake = rec.fields?.["balance_24h.intake"] || (isManualCharting ? "—" : (2400 + sd.dayNumber * 40))
-    const output = rec.fields?.["balance_24h.output"] || (isManualCharting ? "—" : (1800 + sd.dayNumber * 20))
-    const netBal = Number(rec.fields?.["balance_24h.balance"] || (intake !== "—" && output !== "—" ? Number(intake) - Number(output) : 0))
-    const cumBal = Number(rec.fields?.["balance_24h.cumulative_balance"] || netBal)
-    const hb = rec.tables?.labs?.[0]?.hb || (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "8.8" : "9.6"))
-    const creat = rec.tables?.labs?.[0]?.creatinine || (isManualCharting ? "—" : (sd.dayNumber <= 3 ? "2.1" : "1.8"))
-    const trop = isManualCharting ? "—" : (sd.dayNumber <= 2 ? "18.4 ng/mL (Peak)" : sd.dayNumber <= 5 ? "6.2 ng/mL" : "0.04 ng/mL")
-
-    const clinicalNotes = rec.fields?.["day_plan.clinical_notes"] || rec.fields?.["admission.active_problem"] || (isManualCharting
-      ? (hasUserData ? "Clinical parameters documented in daily flowsheet." : `Day ${sd.dayNumber}: Pending manual clinical flowsheet entry.`)
-      : (
-        [
-          "",
-          "Day 1: Acute emergency admission via ER post-primary PCI to LAD. Intubated, arterial line placed, started on Norepinephrine.",
-          "Day 2: Hemodynamically stabilized on moderate pressor support. Bedside echo: Anterior wall hypokinesia, LVEF 45%.",
-          "Day 3: Mechanical ventilation A/C-VC continued. Pressor titration downward. Adequate urine output >1.2 ml/kg/hr.",
-          "Day 4: Norepinephrine vasopressor successfully discontinued. Spontaneous breathing trial initiated.",
-          "Day 5: Ventilator weaned to SIMV+PS. Sedation holiday successful. Patient awake, calm (RASS 0, GCS 14).",
-          "Day 6: Successful extubation to high-flow nasal cannula. ABG: pH 7.40, PaO2 96 mmHg. Troponin trending down.",
-          "Day 7: Weaned to low-flow room air (SpO2 98%). Central venous catheter removed. Afebrile.",
-          "Day 8: Mobilized to bedside chair. Tolerating oral cardiac diet. Normal bowel sounds present.",
-          "Day 9: Afebrile for >48 hours. Ambulation in ICU corridor tolerated without dyspnea or arrhythmia.",
-          "Day 10: Hemodynamically stable for >24 hours. Full clearance for Stepdown Ward transfer and reception handoff.",
-        ][sd.dayNumber] || `Day ${sd.dayNumber}: Vital parameters stable under protocolized critical care management.`
-      ))
-
+    const rec: FlowsheetRecord = loadRecord(patientId, sd.dateStr)
+    const live = deriveLiveState(rec)
+    const entries = countEntries(rec)
+    const dash = (v: string | number | null | undefined) =>
+      v === null || v === undefined || v === "" ? "—" : v
+    const f = rec.fields ?? {}
+    const intake = dash(f["balance_24h.intake"])
+    const output = dash(f["balance_24h.output"])
+    const netBal = Number(
+      f["balance_24h.balance"] ||
+        (intake !== "—" && output !== "—" ? Number(intake) - Number(output) : 0),
+    )
+    const cumBal = Number(f["balance_24h.cumulative_balance"] || netBal)
+    const lab = (rec.tables?.labs ?? []).find((r) => Object.values(r).some(Boolean))
     return {
       dayNumber: sd.dayNumber,
       dateStr: sd.dateStr,
       isToday: sd.isToday,
-      hr,
-      bp,
-      temp,
-      cvp,
-      ventMode,
-      fio2,
-      peep,
-      spo2,
-      gcs,
-      rass,
+      hr: dash(live.vitals?.hr),
+      bp: dash(live.vitals?.bp),
+      temp: dash(live.vitals?.temp),
+      cvp: dash(live.vitals?.map),
+      ventMode: dash(live.vent?.mode),
+      fio2: dash(live.vent?.fio2),
+      peep: dash(live.vent?.peep),
+      spo2: dash(live.vitals?.spo2),
+      gcs: live.gcs ? `${live.gcs.total}/15` : "—",
+      rass: live.rass ? `${live.rass.score} ${live.rass.label}` : "—",
       intake,
       output,
       netBal,
       cumBal,
-      hb,
-      creat,
-      trop,
-      clinicalNotes,
-      entriesCount: summary?.total || 0,
+      hb: dash(lab?.hb),
+      creat: dash(lab?.creatinine),
+      trop: "—",
+      clinicalNotes:
+        f["day_plan.clinical_notes"] ||
+        f["admission.active_problem"] ||
+        (entries > 0
+          ? "Clinical parameters documented in the daily flowsheet."
+          : "Nothing charted for this day."),
+      entriesCount: entries,
     }
   })
 }
@@ -318,26 +228,56 @@ export function IcuDischargeModal({
   const [dischargeType, setDischargeType] = useState<
     "Ward Stepdown" | "Home Discharge" | "Facility Transfer"
   >("Ward Stepdown")
-  const [destinationWard, setDestinationWard] = useState("3N Medical/Surgical")
+  // Step-down destinations are the hospital's real non-ICU wards.
+  const [wards, setWards] = useState<string[]>([])
+  const [destinationWard, setDestinationWard] = useState("")
+  useEffect(() => {
+    if (!isOpen) return
+    let alive = true
+    apiFetch<{ beds: BedRecord[] }>("/api/beds")
+      .then((res) => {
+        if (!alive) return
+        const names = Array.from(
+          new Set(
+            (res?.beds ?? [])
+              .filter((b) => (b.bed_type || "").toUpperCase() !== "ICU" && !/ICU|INTENSIVE/i.test(b.ward))
+              .map((b) => b.ward)
+              .filter(Boolean),
+          ),
+        ).sort()
+        setWards(names)
+        setDestinationWard((cur) => cur || names[0] || "")
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [isOpen])
   const [dischargeCondition, setDischargeCondition] = useState<
     "Stable" | "Improved" | "Satisfactory" | "Critical / Transfer"
   >("Stable")
   const [dischargeDiagnosis, setDischargeDiagnosis] = useState(
-    patient.dx || "ICU Clinical Care",
+    patient.dx && patient.dx !== "Diagnosis not recorded" ? patient.dx : "",
   )
   const [attendingDoctor, setAttendingDoctor] = useState(
-    patient.provider || "Dr. Shah",
+    patient.provider || "",
   )
   const [nurseInCharge, setNurseInCharge] = useState(
-    patient.nurse || "RN Murphy",
+    patient.nurse || "",
   )
-  const [ventStatus, setVentStatus] = useState("Weaned to Room Air")
+  // Pre-filled from today's chart, for the doctor to confirm or correct.
+  const [initialVentStatus] = useState(
+    patient.vent
+      ? `On ${patient.vent.mode}${patient.vent.fio2 ? `, FiO₂ ${patient.vent.fio2}` : ""} (last charted)`
+      : "No ventilator settings charted today",
+  )
+  const [ventStatus, setVentStatus] = useState(initialVentStatus)
   const [infusionClearance, setInfusionClearance] = useState(
-    "All IV vasopressor drips stopped, peripheral line intact",
+    patient.infusions.length
+      ? `On chart today: ${patient.infusions.map((i) => i.drug).join(", ")}`
+      : "No drugs on today's chart",
   )
-  const [clinicalSummaryNotes, setClinicalSummaryNotes] = useState(
-    `Patient ${patient.name || "Occupant"} cleared for ICU discharge. Hemodynamically stable for >24h. Transfer file transmitted to Reception counter.`,
-  )
+  const [clinicalSummaryNotes, setClinicalSummaryNotes] = useState("")
 
   // State to toggle PDF print / preview modal
   const [showPdfPreview, setShowPdfPreview] = useState(false)
@@ -348,9 +288,9 @@ export function IcuDischargeModal({
     e.preventDefault()
     const now = new Date().toISOString()
     const record: IcuDischargeRecord = {
-      id: `ICU-DISC-${Math.floor(10000 + Math.random() * 90000)}`,
+      id: `ICU-DISC-${Date.now().toString(36).toUpperCase()}`,
       patientName: patient.name || "Unassigned Patient",
-      mrn: patient.mrn || "100999",
+      mrn: patient.mrn,
       bed: patient.bed,
       unit: patient.unit,
       dischargeType,
@@ -362,26 +302,15 @@ export function IcuDischargeModal({
       ventStatus,
       infusionClearance,
       dischargedAt: now,
+      lengthOfStayDays: patient.totalDays || undefined,
       receptionStatus: "Awaiting Reception Settlement",
       clinicalSummaryNotes,
     }
 
     saveDischargedIcuPatient(record)
 
-    // Archive in BedDatabase if physical bed exists
-    try {
-      const beds = BedDatabase.load()
-      const match = beds.find(
-        (b) =>
-          b.bed_no === patient.bed ||
-          b.patient_id === patient.mrn ||
-          (b.patient_name && b.patient_name.includes(patient.name || "___")),
-      )
-      if (match) {
-        BedDatabase.releaseBed(match.id, `ICU Discharge: ${dischargeType}`)
-      }
-    } catch {}
-
+    // The bed itself is released / transferred in Bed Management, which the
+    // board opens on this bed once the hand-off is recorded.
     onConfirmDischarge(record)
     onClose()
   }
@@ -499,11 +428,12 @@ export function IcuDischargeModal({
                   onChange={(e) => setDestinationWard(e.target.value)}
                   className="w-full bg-white border border-blue-300/80 rounded-lg px-3.5 py-2.5 text-xs font-bold text-slate-800 shadow-2xs focus:ring-2 focus:ring-blue-500/20 outline-none"
                 >
-                  <option value="3N Medical/Surgical">3N Medical/Surgical Ward</option>
-                  <option value="4S Surgical">4S Surgical Ward</option>
-                  <option value="2nd Floor Ward">2nd Floor Deluxe Ward</option>
-                  <option value="General Medical Ward">General Medical Ward</option>
-                  <option value="ICU Stepdown Unit">ICU Stepdown Intermediate Care</option>
+                  {wards.length === 0 && <option value="">No wards found in Bed Management</option>}
+                  {wards.map((w) => (
+                    <option key={w} value={w}>
+                      {w}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
@@ -551,6 +481,7 @@ export function IcuDischargeModal({
                   onChange={(e) => setVentStatus(e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none"
                 >
+                  {initialVentStatus && <option value={initialVentStatus}>{initialVentStatus}</option>}
                   <option value="Weaned to Room Air">Weaned to Room Air</option>
                   <option value="Nasal Cannula 2L">Nasal Cannula 2L/min</option>
                   <option value="Extubated 12h ago">Extubated Successfully &gt;12h</option>
@@ -670,7 +601,7 @@ export function IcuJourneyFlowsheetPdfModal({
   const branding = useBranding()
   const totalDays = patient.totalDays || 10
   const dayRecords = useMemo(
-    () => getPatientDayRecords(patient.mrn || "100301", totalDays, patient.isManualCharting),
+    () => getPatientDayRecords(patient.mrn, totalDays),
     [patient.mrn, totalDays, patient.isManualCharting],
   )
 
@@ -751,9 +682,9 @@ export function IcuJourneyFlowsheetPdfModal({
                   </tr>
                   <tr className="border-b border-slate-200">
                     <td className="bg-slate-50 px-2.5 py-1.5 font-bold text-slate-600">Attending Intensivist:</td>
-                    <td className="px-2.5 py-1.5 font-bold text-slate-900">{dischargeData.attendingDoctor || patient.provider || "Dr. Shah"}</td>
+                    <td className="px-2.5 py-1.5 font-bold text-slate-900">{dischargeData.attendingDoctor || patient.provider || ""}</td>
                     <td className="bg-slate-50 px-2.5 py-1.5 font-bold text-slate-600">ICU Charge Nurse:</td>
-                    <td className="px-2.5 py-1.5 font-semibold text-slate-800">{dischargeData.nurseInCharge || patient.nurse || "RN Murphy"}</td>
+                    <td className="px-2.5 py-1.5 font-semibold text-slate-800">{dischargeData.nurseInCharge || patient.nurse || ""}</td>
                   </tr>
                   <tr className="border-b border-slate-200">
                     <td className="bg-slate-50 px-2.5 py-1.5 font-bold text-slate-600">Primary Diagnosis:</td>
@@ -806,7 +737,7 @@ export function IcuJourneyFlowsheetPdfModal({
                       <td className="border-r border-slate-200 p-1.5 font-mono">
                         <div className="font-bold text-slate-900">{r.bp} mmHg</div>
                         <div className="text-[8.5px] text-slate-600">HR: {r.hr} bpm · {r.temp}°C</div>
-                        <div className="text-[8px] text-slate-400">CVP: {r.cvp} mmHg</div>
+                        <div className="text-[8px] text-slate-400">MAP: {r.cvp} mmHg</div>
                       </td>
                       <td className="border-r border-slate-200 p-1.5 font-mono">
                         <div className="font-bold text-blue-900">{r.ventMode}</div>
@@ -877,13 +808,13 @@ export function IcuJourneyFlowsheetPdfModal({
             <div className="border border-slate-300 p-3 break-inside-avoid">
               <div className="grid grid-cols-3 gap-6 text-[9.5px]">
                 <div className="border-t border-slate-400 pt-1 text-center">
-                  <div className="font-bold text-slate-900">{dischargeData.nurseInCharge || patient.nurse || "RN Murphy"}</div>
+                  <div className="font-bold text-slate-900">{dischargeData.nurseInCharge || patient.nurse || ""}</div>
                   <div className="text-[8.5px] text-slate-500">ICU Shift In-Charge Nurse (Signature)</div>
                   <div className="text-[8px] font-mono text-slate-400 mt-0.5">Reg #APN-ICU-88219</div>
                 </div>
 
                 <div className="border-t border-slate-400 pt-1 text-center">
-                  <div className="font-bold text-slate-900">{dischargeData.attendingDoctor || patient.provider || "Dr. Shah"}</div>
+                  <div className="font-bold text-slate-900">{dischargeData.attendingDoctor || patient.provider || ""}</div>
                   <div className="text-[8.5px] text-slate-500">Attending Intensivist / Physician (Seal &amp; Signature)</div>
                   <div className="text-[8px] font-mono text-slate-400 mt-0.5">Reg #TSMC-77341 · Critical Care</div>
                 </div>
@@ -920,47 +851,35 @@ export function IcuDischargeSummarySlipModal({
 }) {
   if (!record) return null
 
-  // Mock patient object to render the complete journey flowsheet
-  const mockPatient: IcuPatient = {
+  // The journey sheet reads the chart days themselves; this only carries the
+  // hand-off's identity fields. No vitals are filled in here.
+  const journeyPatient: IcuPatient = {
     bed: record.bed,
     unit: record.unit,
-    unitType: (record.unit.includes("SICU") ? "SICU" : record.unit.includes("CCU") ? "CCU" : "MICU") as any,
+    unitType: /SICU|Surgical/i.test(record.unit) ? "SICU" : /CCU|Cardiac/i.test(record.unit) ? "CCU" : /PICU|Pediatric/i.test(record.unit) ? "PICU" : /NICU|Neuro/i.test(record.unit) ? "NICU" : /MICU|Medical/i.test(record.unit) ? "MICU" : "WARD",
     name: record.patientName,
     mrn: record.mrn,
-    age: 68,
-    sex: "M",
+    age: null,
+    sex: null,
     dx: record.dischargeDiagnosis,
     provider: record.attendingDoctor,
     nurse: record.nurseInCharge,
-    los: record.lengthOfStayDays ? `${record.lengthOfStayDays}d` : "10d 4h",
-    totalDays: record.lengthOfStayDays || 10,
-    code: "Full Code",
-    vitals: {
-      bp: "110/70",
-      hr: "96",
-      rr: "18",
-      temp: "37.2°C",
-      spo2: "98%",
-      cvp: "12",
-    },
-    vent: {
-      mode: "Weaned",
-      fio2: "21%",
-      peep: "0",
-      tv: "450",
-      rr: "18",
-      pip: "16",
-    },
+    los: record.lengthOfStayDays ? `${record.lengthOfStayDays}d` : "",
+    totalDays: record.lengthOfStayDays || 1,
+    code: "",
+    vitals: null,
+    vent: null,
     infusions: [],
     alerts: [],
-    score: { sofa: 3, apache: 12, rass: 0 },
+    score: { sofa: 0, apache: 0, rass: 0 },
     hrTrend: [],
     bpTrend: [],
+    isManualCharting: true,
   }
 
   return (
     <IcuJourneyFlowsheetPdfModal
-      patient={mockPatient}
+      patient={journeyPatient}
       dischargeData={record}
       onClose={onClose}
     />

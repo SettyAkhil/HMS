@@ -42,26 +42,26 @@ export default function EmployeeProfile({ employeeId, canEdit, refs, onBack, can
 
   return (
     <div>
-      <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 mb-3 cursor-pointer">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-semibold text-[#1B4FD8] hover:text-[#1E40AF] mb-3 cursor-pointer">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Employees Directory
       </button>
-      <div className="bg-white border border-slate-200 rounded-xl p-5 mb-4 shadow-2xs flex flex-wrap items-start justify-between gap-3">
+      <div className="bg-white border border-[#DDE2EC] rounded p-5 mb-4 shadow-2xs flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3.5">
           <Avatar name={e.full_name} size="lg" />
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">{e.full_name}</h2>
+              <h2 className="text-base font-semibold text-gray-900 tracking-tight">{e.full_name}</h2>
               <StatusBadge value={e.status} />
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              <span className="font-mono font-medium text-slate-600">{e.employee_code}</span> · {e.designation ?? categoryLabel(e.employee_category)} ·{" "}
+            <p className="text-xs text-[#64748B] mt-0.5">
+              <span className="font-mono font-medium text-gray-700">{e.employee_code}</span> · {e.designation ?? categoryLabel(e.employee_category)} ·{" "}
               {e.departments.find((d) => d.is_primary && !d.effective_to)?.department_name ?? "No department"}
               {e.branch && ` · ${e.branch}`}
             </p>
-            <p className="flex flex-wrap gap-3 mt-1.5 text-xs text-slate-500">
-              {e.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" />{e.phone}</span>}
-              {e.email && <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" />{e.email}</span>}
-              {e.reporting_manager && <span>Reports to <strong className="text-slate-700">{e.reporting_manager}</strong></span>}
+            <p className="flex flex-wrap gap-3 mt-1.5 text-xs text-[#64748B]">
+              {e.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3 text-[#64748B]" />{e.phone}</span>}
+              {e.email && <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3 text-[#64748B]" />{e.email}</span>}
+              {e.reporting_manager && <span>Reports to <strong className="text-gray-900">{e.reporting_manager}</strong></span>}
             </p>
           </div>
         </div>
@@ -137,9 +137,9 @@ export default function EmployeeProfile({ employeeId, canEdit, refs, onBack, can
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-3 py-1.5 text-sm border-b border-slate-50 last:border-0">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-slate-900 text-right">{value || "—"}</span>
+    <div className="flex justify-between gap-3 py-1.5 text-sm border-b border-[#EEF1F6] last:border-0">
+      <span className="text-[#64748B]">{label}</span>
+      <span className="text-gray-900 text-right">{value || "—"}</span>
     </div>
   )
 }
@@ -272,10 +272,10 @@ function Employment({ e, refs }: { e: EmployeeDetail; refs: OrgRefs | null }) {
             <td className="px-4 py-2">{humanize(r.employment_type)}</td>
             <td className="px-4 py-2">{branch(r.branch_id)}</td>
             <td className="px-4 py-2">{des(r.designation_id)}</td>
-            <td className="px-4 py-2 text-slate-600 max-w-xs truncate" title={r.reason ?? ""}>
+            <td className="px-4 py-2 text-gray-700 max-w-xs truncate" title={r.reason ?? ""}>
               {r.reason ?? "—"}
             </td>
-            <td className="px-4 py-2 text-slate-500 text-xs">{r.created_by}</td>
+            <td className="px-4 py-2 text-[#64748B] text-xs">{r.created_by}</td>
           </tr>
         ))}
       </Table>
@@ -310,7 +310,7 @@ function Credentials({ e, canEdit, onAdd, onChange }: { e: EmployeeDetail; canEd
             <tr key={c.id}>
               <td className="px-4 py-2">{humanize(c.credential_type)}</td>
               <td className="px-4 py-2 font-mono text-xs">{c.number}</td>
-              <td className="px-4 py-2 text-slate-600">{c.issuing_authority ?? "—"}</td>
+              <td className="px-4 py-2 text-gray-700">{c.issuing_authority ?? "—"}</td>
               <td className="px-4 py-2 whitespace-nowrap">{fmtDate(c.issued_on)}</td>
               <td className={`px-4 py-2 whitespace-nowrap ${c.days_to_expiry !== null && c.days_to_expiry < 60 ? "text-rose-700 font-medium" : ""}`}>
                 {fmtDate(c.expires_on)}
@@ -318,13 +318,13 @@ function Credentials({ e, canEdit, onAdd, onChange }: { e: EmployeeDetail; canEd
               </td>
               <td className="px-4 py-2">
                 <StatusBadge value={c.verification_status} />
-                {c.verified_by && <div className="text-[11px] text-slate-400">{c.verified_by}</div>}
+                {c.verified_by && <div className="text-[11px] text-[#64748B]">{c.verified_by}</div>}
               </td>
               <td className="px-4 py-2 text-right whitespace-nowrap">
                 {canEdit && c.verification_status === "pending" && (
                   <>
                     <Btn variant="ghost" onClick={() => verify(c.id, "verified")} title="Mark verified">
-                      <BadgeCheck className="w-3.5 h-3.5 text-[#007078]" />
+                      <BadgeCheck className="w-3.5 h-3.5 text-[#16A34A]" />
                     </Btn>
                     <Btn variant="ghost" onClick={() => verify(c.id, "rejected")} title="Reject">
                       <XCircle className="w-3.5 h-3.5 text-rose-600" />
@@ -348,7 +348,7 @@ function Departments({ e }: { e: EmployeeDetail }) {
       ) : (
         <Table head={["Department", "Primary", "Allocation", "From", "To"]}>
           {e.departments.map((d) => (
-            <tr key={d.id} className={d.effective_to ? "text-slate-400" : ""}>
+            <tr key={d.id} className={d.effective_to ? "text-gray-400" : ""}>
               <td className="px-4 py-2">{d.department_name}</td>
               <td className="px-4 py-2">{d.is_primary ? "Primary" : "—"}</td>
               <td className="px-4 py-2 tabular-nums">{d.allocation_percent}%</td>
@@ -396,8 +396,8 @@ function Attendance({ e, canEdit, onMap }: { e: EmployeeDetail; canEdit: boolean
                   <td className="px-4 py-2 whitespace-nowrap">{fmtDateTime(p.punch_time)}</td>
                   <td className="px-4 py-2">{p.device_name ?? p.device_serial ?? "—"}</td>
                   <td className="px-4 py-2 font-mono text-xs">{p.device_user_id}</td>
-                  <td className="px-4 py-2 text-slate-600">{p.verify_mode ?? "—"}</td>
-                  <td className="px-4 py-2 text-slate-500 text-xs whitespace-nowrap">{fmtDateTime(p.received_at)}</td>
+                  <td className="px-4 py-2 text-gray-700">{p.verify_mode ?? "—"}</td>
+                  <td className="px-4 py-2 text-[#64748B] text-xs whitespace-nowrap">{fmtDateTime(p.received_at)}</td>
                 </tr>
               ))}
             </Table>
@@ -415,12 +415,12 @@ function History({ id }: { id: string }) {
   if (h.error) return <ErrorState error={h.error} onRetry={h.reload} />
   return (
     <Panel title="Employment history">
-      <ol className="relative border-l border-slate-200 ml-2">
+      <ol className="relative border-l border-[#DDE2EC] ml-2">
         {h.data!.map((x) => (
           <li key={x.id} className="ml-4 pb-4">
-            <span className="absolute -left-1.5 mt-1.5 w-3 h-3 rounded-full bg-[#007078]/20 border-2 border-[#007078]" />
-            <div className="text-sm text-slate-900">{x.summary}</div>
-            <div className="text-[11px] text-slate-500">
+            <span className="absolute -left-1.5 mt-1.5 w-3 h-3 rounded-full bg-blue-100 border-2 border-[#1B4FD8]" />
+            <div className="text-sm font-medium text-gray-900">{x.summary}</div>
+            <div className="text-[11px] text-[#64748B]">
               {fmtDateTime(x.occurred_at)} · {x.created_by}
               {x.details?.reason && ` · ${x.details.reason}`}
             </div>
@@ -441,9 +441,9 @@ function Audit({ id }: { id: string }) {
         {a.data!.map((x) => (
           <tr key={x.id}>
             <td className="px-4 py-2 whitespace-nowrap">{fmtDateTime(x.created_at)}</td>
-            <td className="px-4 py-2">{x.actor}</td>
+            <td className="px-4 py-2 font-medium">{x.actor}</td>
             <td className="px-4 py-2">{humanize(x.action)}</td>
-            <td className="px-4 py-2 text-xs text-slate-600 font-mono max-w-lg truncate" title={JSON.stringify(x.changes)}>
+            <td className="px-4 py-2 text-xs text-gray-700 font-mono max-w-lg truncate" title={JSON.stringify(x.changes)}>
               {x.changes ? Object.keys(x.changes).join(", ") : "—"}
             </td>
           </tr>
@@ -529,7 +529,7 @@ function EditDrawer({ e, onClose, onSaved }: { e: EmployeeDetail; onClose: () =>
         </>
       }
     >
-      <p className="text-xs text-slate-500 mb-3">Branch, department, designation and manager change through Transfer, and status through the lifecycle actions, so the history is kept.</p>
+      <p className="text-xs text-[#64748B] mb-3">Branch, department, designation and manager change through Transfer, and status through the lifecycle actions, so the history is kept.</p>
       <div className="grid grid-cols-3 gap-3">
         {input("first_name", "First name")}
         {input("middle_name", "Middle name")}
@@ -641,7 +641,7 @@ function TransferDrawer({ e, refs, onClose, onSaved }: { e: EmployeeDetail; refs
           </select>
         </Field>
         <Field label="Additional departments" hint="Shared staff, e.g. a nurse covering ICU and ER">
-          <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-[6px] p-2 space-y-1">
+          <div className="max-h-36 overflow-y-auto border border-[#DDE2EC] rounded p-2 space-y-1">
             {refs.departments
               .filter((d) => d.id !== f.primary)
               .map((d) => (
@@ -862,17 +862,17 @@ function SummaryStrip({ employeeId, version }: { employeeId: string; version: st
   )
   if (!s.data) return null
   const d = s.data
-  const cell = (label: string, value: React.ReactNode, sub?: string, tone = "text-slate-900") => (
+  const cell = (label: string, value: React.ReactNode, sub?: string, tone = "text-gray-900") => (
     <div className="px-4 py-2.5">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`text-base font-semibold tabular-nums ${tone}`}>{value}</div>
-      {sub && <div className="text-[11px] text-slate-400">{sub}</div>}
+      <div className="text-[10px] uppercase tracking-wider text-[#64748B] font-semibold">{label}</div>
+      <div className={`text-base font-bold font-mono tabular-nums ${tone}`}>{value}</div>
+      {sub && <div className="text-[11px] text-[#64748B]">{sub}</div>}
     </div>
   )
   return (
-    <div className="grid grid-cols-2 md:grid-cols-6 divide-x divide-slate-100 bg-white border border-slate-200 rounded-[8px] mb-4">
+    <div className="grid grid-cols-2 md:grid-cols-6 divide-x divide-[#EEF1F6] bg-white border border-[#DDE2EC] rounded mb-4 shadow-2xs">
       {cell("Tenure", d.tenure)}
-      {cell("Attendance this month", d.attendance_rate !== null ? `${d.attendance_rate}%` : "—", `${d.days_worked} days worked`, d.attendance_rate !== null && d.attendance_rate < 90 ? "text-amber-700" : "text-[#007078]")}
+      {cell("Attendance this month", d.attendance_rate !== null ? `${d.attendance_rate}%` : "—", `${d.days_worked} days worked`, d.attendance_rate !== null && d.attendance_rate < 90 ? "text-amber-700" : "text-[#16A34A]")}
       {cell("Absences", d.absences, "this month", d.absences ? "text-rose-700" : undefined)}
       {cell("Late days", d.late_days, "this month", d.late_days > 2 ? "text-amber-700" : undefined)}
       {cell("Leave available", d.leave_available, "paid days")}

@@ -31,6 +31,7 @@ import PatientDetailsModal from "./PatientDetailsModal"
 import RadiologyReportPdfModal from "./RadiologyReportPdfModal"
 
 export type DisplayReportingStatus =
+  | "Awaiting Scan"
   | "Awaiting Report"
   | "Draft Saved"
   | "Under Review"
@@ -49,7 +50,7 @@ export function resolveReportingStatus(study: ExtendedRadiologyRecord): Reportin
   const override = typeof window !== "undefined" ? localStorage.getItem(overrideKey) : null
   const normRep = (override || study.normalizedReportStatus || study.reportStatus || "").toString().trim()
 
-  if (normRep === "Finalized" || normRep === "Final" || study.status === "Finalized") {
+  if (normRep === "Finalized" || normRep === "Final" || (study.status as string) === "Finalized") {
     return {
       status: "Finalized",
       label: "Finalized",

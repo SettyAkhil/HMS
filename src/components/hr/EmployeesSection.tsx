@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import toast from "react-hot-toast"
-import { Download, Fingerprint, LayoutGrid, List, Phone, Plus, Search, Upload } from "lucide-react"
+import { Download, Fingerprint, LayoutGrid, List, Phone, Plus, Search, Upload, X } from "lucide-react"
 import { hr, HrApiError } from "../../services/hr/client"
 import { EMPLOYEE_CATEGORIES, EMPLOYMENT_TYPES, categoryLabel, type EmployeeDetail, type EmployeeListItem, type Page } from "../../services/hr/types"
 import { Avatar, Btn, Drawer, Empty, ErrorState, Field, fmtDate, filterCls, inputCls, Loading, PageHeader, Pager, Panel, StatusBadge, Table, errorText, useHr } from "./ui"
@@ -28,10 +28,15 @@ export default function EmployeesSection({ canEdit, initialFilters, openEmployee
 
   useEffect(() => setSelected(openEmployeeId ?? null), [openEmployeeId])
   useEffect(() => {
+    if (!search) {
+      setFilters((f) => ({ ...f, search: "" }))
+      setPage(1)
+      return
+    }
     const t = setTimeout(() => {
       setFilters((f) => ({ ...f, search }))
       setPage(1)
-    }, 300)
+    }, 60)
     return () => clearTimeout(t)
   }, [search])
 
@@ -104,8 +109,25 @@ export default function EmployeesSection({ canEdit, initialFilters, openEmployee
       <Panel>
         <div className="flex flex-wrap gap-2 mb-3">
           <div className="relative flex-1 min-w-[220px]">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-            <input className={`${inputCls} pl-8`} placeholder="Search name, code, email, phone" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search employees" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#64748B]" />
+            <input
+              className={`${inputCls} pl-8 ${search ? "pr-8" : ""}`}
+              placeholder="Search name, code, email, phone (instant)"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setSearch("")}
+              aria-label="Search employees"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-2.5 text-[#64748B] hover:text-gray-900 cursor-pointer"
+                aria-label="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <select className={filterCls} value={filters.status} onChange={(e) => set({ status: e.target.value })} aria-label="Status">
             <option value="">All statuses</option>
@@ -147,7 +169,7 @@ export default function EmployeesSection({ canEdit, initialFilters, openEmployee
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 text-xs text-slate-600 px-1">
+          <label className="flex items-center gap-1.5 text-xs text-gray-700 px-1 font-medium cursor-pointer">
             <input type="checkbox" checked={filters.unmapped} onChange={(e) => set({ unmapped: e.target.checked })} /> No biometric ID
           </label>
         </div>
@@ -158,9 +180,9 @@ export default function EmployeesSection({ canEdit, initialFilters, openEmployee
             .map(([k, n]) => (
               <Chip key={k} active={filters.employee_category === k} onClick={() => set({ employee_category: filters.employee_category === k ? "" : k })} label={categoryLabel(k)} n={n} />
             ))}
-          <div className="ml-auto inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="View">
+          <div className="ml-auto inline-flex rounded border border-[#DDE2EC] bg-[#F8FAFC] p-0.5" role="group" aria-label="View">
             {(["table", "cards"] as const).map((v) => (
-              <button key={v} onClick={() => chooseView(v)} aria-pressed={view === v} className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-flex items-center gap-1 transition-all cursor-pointer ${view === v ? "bg-blue-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"}`}>
+              <button key={v} onClick={() => chooseView(v)} aria-pressed={view === v} className={`px-2.5 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 transition-all cursor-pointer ${view === v ? "bg-[#1B4FD8] text-white shadow-2xs" : "text-gray-600 hover:text-gray-900"}`}>
                 {v === "table" ? <List className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
                 {v === "table" ? "Table" : "Cards"}
               </button>
@@ -182,19 +204,19 @@ export default function EmployeesSection({ canEdit, initialFilters, openEmployee
             {view === "cards" ? (
               <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
                 {list.data.items.map((e) => (
-                  <button key={e.id} onClick={() => setSelected(e.id)} className="text-left flex gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-xs transition bg-white cursor-pointer shadow-2xs">
+                  <button key={e.id} onClick={() => setSelected(e.id)} className="text-left flex gap-3 p-3.5 rounded border border-[#DDE2EC] hover:border-[#1B4FD8] hover:shadow-xs transition bg-white cursor-pointer shadow-2xs">
                     <Avatar name={e.full_name} />
                     <span className="flex-1 min-w-0">
                       <span className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 truncate">{e.full_name}</span>
+                        <span className="text-xs font-bold text-gray-900 truncate">{e.full_name}</span>
                         {e.status !== "active" && <StatusBadge value={e.status} />}
                       </span>
-                      <span className="block text-xs text-slate-600 truncate mt-0.5">{e.designation ?? categoryLabel(e.employee_category)}</span>
-                      <span className="block text-[11px] text-slate-400 truncate">{e.department ?? "No department"}{e.branch ? ` · ${e.branch}` : ""}</span>
-                      <span className="flex items-center gap-3 mt-2 text-[11px] text-slate-500">
+                      <span className="block text-xs text-gray-700 truncate mt-0.5">{e.designation ?? categoryLabel(e.employee_category)}</span>
+                      <span className="block text-[11px] text-[#64748B] truncate">{e.department ?? "No department"}{e.branch ? ` · ${e.branch}` : ""}</span>
+                      <span className="flex items-center gap-3 mt-2 text-[11px] text-[#64748B]">
                         <span className="font-mono">{e.employee_code}</span>
                         {e.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" />{e.phone}</span>}
-                        <Fingerprint className={`w-3.5 h-3.5 ml-auto ${e.biometric_mapped ? "text-blue-600" : "text-slate-300"}`} aria-label={e.biometric_mapped ? "Biometric ID mapped" : "No biometric ID"} />
+                        <Fingerprint className={`w-3.5 h-3.5 ml-auto ${e.biometric_mapped ? "text-[#1B4FD8]" : "text-gray-300"}`} aria-label={e.biometric_mapped ? "Biometric ID mapped" : "No biometric ID"} />
                       </span>
                     </span>
                   </button>
@@ -203,26 +225,26 @@ export default function EmployeesSection({ canEdit, initialFilters, openEmployee
             ) : (
             <Table head={["Employee", "Category", "Designation", "Department", "Branch", "Joined", "Status", { label: "", align: "right" }]}>
               {list.data.items.map((e) => (
-                <tr key={e.id} className="hover:bg-slate-50/80 cursor-pointer transition-colors" onClick={() => setSelected(e.id)}>
+                <tr key={e.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => setSelected(e.id)}>
                   <td className="px-4 py-2.5">
                     <span className="flex items-center gap-2.5">
                       <Avatar name={e.full_name} size="sm" />
                       <span>
-                        <span className="block text-slate-900 font-semibold">{e.full_name}</span>
-                        <span className="block font-mono text-[11px] text-slate-400">{e.employee_code}</span>
+                        <span className="block text-gray-900 font-semibold">{e.full_name}</span>
+                        <span className="block font-mono text-[11px] text-[#64748B]">{e.employee_code}</span>
                       </span>
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-600">{categoryLabel(e.employee_category)}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{e.designation ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{e.department ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{e.branch ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDate(e.joining_date)}</td>
+                  <td className="px-4 py-2.5 text-gray-700">{categoryLabel(e.employee_category)}</td>
+                  <td className="px-4 py-2.5 text-gray-700">{e.designation ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-gray-700">{e.department ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-gray-700">{e.branch ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{fmtDate(e.joining_date)}</td>
                   <td className="px-4 py-2.5">
                     <StatusBadge value={e.status} />
                   </td>
                   <td className="px-4 py-2.5 text-right" title={e.biometric_mapped ? "Biometric ID mapped" : "No biometric ID"}>
-                    <Fingerprint className={`w-4 h-4 inline ${e.biometric_mapped ? "text-blue-600" : "text-slate-300"}`} />
+                    <Fingerprint className={`w-4 h-4 inline ${e.biometric_mapped ? "text-[#1B4FD8]" : "text-gray-300"}`} />
                   </td>
                 </tr>
               ))}
@@ -335,7 +357,7 @@ function CreateEmployee({ refs, onClose, onCreated }: { refs: OrgRefs; onClose: 
       onClose={onClose}
       footer={
         <>
-          <label className="mr-auto flex items-center gap-2 text-xs text-slate-600">
+          <label className="mr-auto flex items-center gap-2 text-xs text-gray-700 font-medium">
             <input type="checkbox" checked={f.activate} onChange={(e) => set({ activate: e.target.checked })} />
             Activate now (otherwise saved as draft)
           </label>
@@ -346,7 +368,7 @@ function CreateEmployee({ refs, onClose, onCreated }: { refs: OrgRefs; onClose: 
         </>
       }
     >
-      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Personal</h4>
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">Personal</h4>
       <div className="grid grid-cols-3 gap-3 mb-5">
         <Field label="First name" required error={err("first_name")}>
           <input className={inputCls} value={f.first_name} onChange={(e) => set({ first_name: e.target.value })} />
@@ -379,7 +401,7 @@ function CreateEmployee({ refs, onClose, onCreated }: { refs: OrgRefs; onClose: 
         </div>
       </div>
 
-      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Employment</h4>
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">Employment</h4>
       <div className="grid grid-cols-3 gap-3 mb-5">
         <Field label="Category" required error={err("employee_category")}>
           <select className={inputCls} value={f.employee_category} onChange={(e) => set({ employee_category: e.target.value })}>
@@ -442,7 +464,7 @@ function CreateEmployee({ refs, onClose, onCreated }: { refs: OrgRefs; onClose: 
         </Field>
       </div>
 
-      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Professional</h4>
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">Professional</h4>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <Field label="Qualification">
           <input className={inputCls} value={f.qualification} onChange={(e) => set({ qualification: e.target.value })} />
@@ -473,7 +495,7 @@ function CreateEmployee({ refs, onClose, onCreated }: { refs: OrgRefs; onClose: 
         </Field>
       </div>
 
-      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Emergency contact</h4>
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">Emergency contact</h4>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Name">
           <input className={inputCls} value={f.emergency_name} onChange={(e) => set({ emergency_name: e.target.value })} />
@@ -535,7 +557,7 @@ function ImportEmployees({ onClose, onDone }: { onClose: () => void; onDone: () 
         </>
       }
     >
-      <p className="text-xs text-slate-600 mb-3">
+      <p className="text-xs text-gray-700 mb-3">
         UTF-8 CSV with a header row. Required: <code>first_name</code>, <code>employee_category</code>, <code>joining_date</code> (YYYY-MM-DD). Optional:{" "}
         <code>last_name, employment_type, email, phone, gender, department_code, designation_code, contract_end_date</code>. Validate first; nothing is saved if any row has
         an error.
@@ -552,7 +574,7 @@ function ImportEmployees({ onClose, onDone }: { onClose: () => void; onDone: () 
       />
       {result && (
         <div className="mt-4 text-sm">
-          <p className="text-slate-700">
+          <p className="text-gray-800 font-medium">
             {result.total_rows} rows · {result.created ? `${result.created} created` : result.errors.length ? `${result.errors.length} with errors` : "all valid — ready to import"}
           </p>
           {result.errors.length > 0 && (
@@ -572,9 +594,9 @@ function ImportEmployees({ onClose, onDone }: { onClose: () => void; onDone: () 
 
 function Chip({ label, n, active, onClick }: { label: string; n?: number; active: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} aria-pressed={active} className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition cursor-pointer ${active ? "bg-blue-50 border-blue-300 text-blue-700 shadow-2xs" : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-800"}`}>
+    <button onClick={onClick} aria-pressed={active} className={`px-2.5 py-1 rounded text-xs font-semibold border transition cursor-pointer ${active ? "bg-blue-50 border-[#1B4FD8] text-[#1B4FD8] shadow-2xs" : "bg-white border-[#DDE2EC] text-gray-700 hover:border-gray-400 hover:text-gray-900"}`}>
       {label}
-      {n !== undefined && <span className={`ml-1.5 tabular-nums ${active ? "text-blue-800" : "text-slate-400"}`}>{n}</span>}
+      {n !== undefined && <span className={`ml-1.5 tabular-nums ${active ? "text-[#1B4FD8]" : "text-[#64748B]"}`}>{n}</span>}
     </button>
   )
 }

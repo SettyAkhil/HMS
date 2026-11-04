@@ -4151,17 +4151,18 @@ export class GeneralReportsService {
       const u = v.patient_id || `ER-${v.id}`
       if (admissionsList.some((a) => a.umr === u)) return
 
-      const isIcu = (v.disposition?.outcome || "").toLowerCase().includes("icu") || (v.assigned_bed || "").toLowerCase().includes("icu")
+      const isIcu = (v.disposition?.outcome || "").toLowerCase().includes("icu") || (((v as any).assigned_bed || (v as any).bed_number || "") as string).toLowerCase().includes("icu")
       const admId = `ADM-ER-${v.id}`
       seenAdmIds.add(admId)
 
       const pName = `${v.patient_name || "Emergency"} ${v.patient_last_name || "Patient"}`.trim()
-      const ward = v.assigned_bed ? `ER Bed (${v.assigned_bed})` : "ER / Inpatient Intake"
+      const bed = (v as any).assigned_bed || (v as any).bed_number
+      const ward = bed ? `ER Bed (${bed})` : "ER / Inpatient Intake"
       const doc = v.assigned_doctor_name || "ER Physician"
 
       admissionsList.push({
         id: admId,
-        admissionNumber: `ADM-ER-${v.er_number || v.id}`,
+        admissionNumber: `ADM-ER-${(v as any).er_number || v.id}`,
         umr: u,
         patient: pName,
         admissionType: isIcu ? "Direct ICU" : "Emergency",
@@ -4601,7 +4602,7 @@ export class GeneralReportsService {
           employeeName: d.name,
           role: "Attending Physician / Doctor",
           department: d.specialty || "Clinical",
-          joiningDate: d.joiningDate || "2024-03-15",
+          joiningDate: (d as any).joiningDate || "2024-03-15",
           status: d.verified !== false ? "Active" : "On Request",
           shift: i % 3 === 0 ? "Morning" : i % 3 === 1 ? "Evening" : "Night",
           category: "Doctor",
@@ -4611,8 +4612,8 @@ export class GeneralReportsService {
           employeeId: u.staffId || `STF-${2001 + i}`,
           employeeName: u.name,
           role: u.roleId.replace("ROLE_", "").replace(/_/g, " "),
-          department: u.department || "Hospital Administration",
-          joiningDate: u.createdAt ? u.createdAt.split("T")[0] : "2025-01-10",
+          department: (u as any).department || "Hospital Administration",
+          joiningDate: (u as any).createdAt ? (u as any).createdAt.split("T")[0] : "2025-01-10",
           status: u.status || "Active",
           shift: i % 2 === 0 ? "Morning" : "Evening",
           category: u.roleId.toLowerCase().includes("nurse")

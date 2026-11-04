@@ -6,30 +6,29 @@ import IcuFlowsheet, {
   flowsheetSummary,
   fetchDays,
   onFlowsheetSync,
-  broadcastSave,
-  emptyRecord,
+  loadRecord,
+  countEntries,
+  syncRecordFromServer,
+  appendChartRows,
   type FlowsheetDay,
   type FlowsheetRecord,
 } from "./icu/IcuFlowsheet"
 import {
-  ensureMultiDaySeedData,
   getPatientStayDays,
-  generateSeedRecord,
-  generateDeepakDay1FullRecord,
   getCurrentDateTimeFormatted,
-  getPatientSuggestedMedications,
-  SAMPLE_HANDWRITTEN_PRESCRIPTIONS,
-  type ExtractedRxItem,
-  type SampleHandwrittenRx,
-  type SuggestedMed,
 } from "./icu/icuSeedData"
 import IcuDischargeModal, {
   IcuDischargeSummarySlipModal,
   getDischargedIcuPatients,
   type IcuDischargeRecord,
 } from "./icu/IcuDischargeModal"
-import IcuAdmissionModal from "./icu/IcuAdmissionModal"
+import { deriveLiveState, acuityKey, type LiveState } from "./icu/icuLive"
 import { LabOrderDatabase, type LabOrder } from "../services/labOrdersDb"
+import { PharmacyDatabase, type AppPrescription } from "../services/pharmacyDb"
+import { splitPrescriptionFile } from "../lib/prescriptionAI"
+import { useBranding } from "./branding/DocumentBranding"
+import { apiFetch } from "../lib/api"
+import type { BedRecord } from "../services/bedDb"
 import {
   Area,
   AreaChart,
@@ -40,12 +39,28 @@ import {
   ResponsiveContainer,
 } from "recharts"
 
+export type IcuUnitType = "MICU" | "SICU" | "CCU" | "NICU" | "PICU" | "WARD"
+
 export type IcuPatient = {
   bed: string
   unit: string
   // ICU units only. General wards live in the Inpatient module and ER beds on
-  // the Emergency page; this portal is critical care alone.
-  unitType: "MICU" | "SICU" | "CCU" | "NICU" | "PICU"
+  // the Emergency page; this portal is critical care alone. "WARD" is the
+  // ICU ward: critical-care beds that sit in a ward Bed Management does not
+  // name as a specific unit (e.g. "Intensive Care Unit (ICU)", or an
+  // ICU-type bed on a floor ward).
+  unitType: IcuUnitType
+  // Set on beds that come from Bed Management (/api/beds). Their occupancy is
+  // owned there -- admitting, transferring and discharging happen on that
+  // page -- while the clinical fields here are an ICU-side overlay.
+  source?: "bed_management"
+  bedId?: number
+  ward?: string
+  admissionId?: number | null
+  admittedAt?: string | null
+  bedStatus?: string
+  /** Today's chart, derived; absent for an empty bed. */
+  live?: LiveState
   name: string | null
   mrn: string
   age: number | null
@@ -80,1197 +95,269 @@ export type IcuPatient = {
   isManualCharting?: boolean
 }
 
-const ALL_BEDS_DATASET: IcuPatient[] = [
-  // ── Medical ICU (MICU) ──────────────────────────────────────────────────
-  {
-    bed: "MICU-1",
-    unit: "Medical ICU",
-    unitType: "MICU",
-    name: "Thomas Reed",
-    mrn: "100301",
-    age: 68,
-    sex: "M",
-    dx: "STEMI — Anterior wall, s/p PCI to LAD",
-    provider: "Dr. Shah",
-    nurse: "RN Murphy",
-    los: "10d 4h",
-    totalDays: 10,
-    code: "Full Code",
-    vitals: {
-      bp: "98/62",
-      hr: "112",
-      rr: "22",
-      temp: "38.6°C",
-      spo2: "91%",
-      cvp: "12",
-    },
-    vent: {
-      mode: "A/C-VC",
-      fio2: "60%",
-      peep: "8",
-      tv: "480mL",
-      rr: "18",
-      pip: "32",
-    },
-    infusions: [
-      {
-        drug: "Norepinephrine",
-        rate: "0.12 mcg/kg/min",
-        concentration: "8mg/250mL",
-      },
-      {
-        drug: "Heparin Drip",
-        rate: "1,200 u/hr",
-        concentration: "25,000u/250mL",
-      },
-      { drug: "Propofol", rate: "20 mcg/kg/min", concentration: "10mg/mL" },
-    ],
-    alerts: [
-      "⚠ BP trending down — 3 readings < 100 systolic",
-      "🧪 Troponin rising — peak 18.4 ng/mL",
-    ],
-    score: { sofa: 9, apache: 22, rass: -2 },
-    hrTrend: [
-      { t: "07", v: 104 },
-      { t: "08", v: 108 },
-      { t: "09", v: 112 },
-      { t: "10", v: 118 },
-      { t: "11", v: 112 },
-    ],
-    bpTrend: [
-      { t: "07", v: 105 },
-      { t: "08", v: 100 },
-      { t: "09", v: 98 },
-      { t: "10", v: 96 },
-      { t: "11", v: 98 },
-    ],
-  },
-  {
-    bed: "MICU-2",
-    unit: "Medical ICU",
-    unitType: "MICU",
-    name: "Ann Martinez",
-    mrn: "100088",
-    age: 52,
-    sex: "F",
-    dx: "Septic shock — Klebsiella pneumonia",
-    provider: "Dr. Shah",
-    nurse: "RN Davis",
-    los: "8d 12h",
-    totalDays: 8,
-    code: "Full Code",
-    vitals: {
-      bp: "104/68",
-      hr: "98",
-      rr: "20",
-      temp: "38.2°C",
-      spo2: "94%",
-      cvp: "9",
-    },
-    vent: {
-      mode: "A/C-VC",
-      fio2: "45%",
-      peep: "6",
-      tv: "420mL",
-      rr: "16",
-      pip: "28",
-    },
-    infusions: [
-      {
-        drug: "Norepinephrine",
-        rate: "0.06 mcg/kg/min",
-        concentration: "8mg/250mL",
-      },
-      { drug: "Vancomycin", rate: "1g Q12H", concentration: "1g/200mL" },
-      { drug: "Pip-Tazo", rate: "3.375g Q6H", concentration: "3.375g/100mL" },
-    ],
-    alerts: ["✓ Improving: BP stable > 6h", "🧪 Blood culture pending 36h"],
-    score: { sofa: 7, apache: 18, rass: -1 },
-    hrTrend: [
-      { t: "07", v: 118 },
-      { t: "08", v: 112 },
-      { t: "09", v: 108 },
-      { t: "10", v: 102 },
-      { t: "11", v: 98 },
-    ],
-    bpTrend: [
-      { t: "07", v: 88 },
-      { t: "08", v: 92 },
-      { t: "09", v: 98 },
-      { t: "10", v: 102 },
-      { t: "11", v: 104 },
-    ],
-  },
-  {
-    bed: "MICU-3",
-    unit: "Medical ICU",
-    unitType: "MICU",
-    name: "James Liu",
-    mrn: "100412",
-    age: 61,
-    sex: "M",
-    dx: "Post-cardiac arrest monitoring, s/p TTM",
-    provider: "Dr. Patel",
-    nurse: "RN Jenkins",
-    los: "4d 6h",
-    totalDays: 4,
-    code: "Full Code",
-    vitals: {
-      bp: "118/72",
-      hr: "78",
-      rr: "16",
-      temp: "36.8°C",
-      spo2: "97%",
-      cvp: "8",
-    },
-    vent: {
-      mode: "SIMV+PS",
-      fio2: "35%",
-      peep: "5",
-      tv: "450mL",
-      rr: "14",
-      pip: "22",
-    },
-    infusions: [
-      { drug: "Propofol", rate: "15 mcg/kg/min", concentration: "10mg/mL" },
-    ],
-    alerts: ["✓ EEG stable, no subclinical seizures"],
-    score: { sofa: 5, apache: 14, rass: -1 },
-    hrTrend: [
-      { t: "07", v: 82 },
-      { t: "08", v: 80 },
-      { t: "09", v: 78 },
-      { t: "10", v: 76 },
-      { t: "11", v: 78 },
-    ],
-    bpTrend: [
-      { t: "07", v: 115 },
-      { t: "08", v: 118 },
-      { t: "09", v: 120 },
-      { t: "10", v: 118 },
-      { t: "11", v: 118 },
-    ],
-  },
-  {
-    bed: "MICU-4",
-    unit: "Medical ICU",
-    unitType: "MICU",
-    name: "Elena Park",
-    mrn: "100518",
-    age: 44,
-    sex: "F",
-    dx: "Severe DKA — pH 7.15, Anion Gap 24",
-    provider: "Dr. Shah",
-    nurse: "RN Murphy",
-    los: "3d 2h",
-    totalDays: 3,
-    code: "Full Code",
-    vitals: {
-      bp: "112/70",
-      hr: "92",
-      rr: "18",
-      temp: "37.1°C",
-      spo2: "99%",
-      cvp: "7",
-    },
-    vent: {
-      mode: "Nasal Cannula",
-      fio2: "21%",
-      peep: "0",
-      tv: "—",
-      rr: "18",
-      pip: "—",
-    },
-    infusions: [
-      {
-        drug: "Insulin Drip",
-        rate: "0.05 u/kg/hr",
-        concentration: "100u/100mL",
-      },
-      {
-        drug: "D5 1/2 NS + 20 KCl",
-        rate: "150 mL/hr",
-        concentration: "1000mL",
-      },
-    ],
-    alerts: ["✓ Anion gap closed to 10", "🧪 Potassium 4.5 mEq/L"],
-    score: { sofa: 3, apache: 10, rass: 0 },
-    hrTrend: [
-      { t: "07", v: 102 },
-      { t: "08", v: 98 },
-      { t: "09", v: 95 },
-      { t: "10", v: 92 },
-      { t: "11", v: 92 },
-    ],
-    bpTrend: [
-      { t: "07", v: 108 },
-      { t: "08", v: 110 },
-      { t: "09", v: 112 },
-      { t: "10", v: 112 },
-      { t: "11", v: 112 },
-    ],
-  },
-  {
-    bed: "MICU-5",
-    unit: "Medical ICU",
-    unitType: "MICU",
-    name: "Lokesh P",
-    mrn: "100992",
-    age: 46,
-    sex: "M",
-    dx: "Severe ARDS & Bilateral Bronchopneumonia — Type 1 Respiratory Failure",
-    provider: "Dr. K. Lokesh Kumar Raju (Critical Care)",
-    nurse: "RN Murphy",
-    los: "7d 6h",
-    totalDays: 7,
-    code: "Full Code",
-    vitals: {
-      bp: "114/72",
-      hr: "88",
-      rr: "20",
-      temp: "37.4°C",
-      spo2: "96%",
-      cvp: "10",
-    },
-    vent: {
-      mode: "SIMV+PS",
-      fio2: "40%",
-      peep: "6",
-      tv: "460mL",
-      rr: "16",
-      pip: "26",
-    },
-    infusions: [
-      {
-        drug: "Norepinephrine",
-        rate: "0.04 mcg/kg/min",
-        concentration: "8mg/250mL",
-      },
-      { drug: "Meropenem", rate: "1g Q8H", concentration: "1g/100mL" },
-      { drug: "Midazolam", rate: "2 mg/hr", concentration: "50mg/50mL" },
-    ],
-    alerts: [
-      "✅ Ventilator weaning in progress — CPAP trial scheduled",
-      "🧪 ABG: pH 7.39, PaO2 84, PaCO2 41, HCO3 24",
-    ],
-    score: { sofa: 5, apache: 14, rass: -1 },
-    hrTrend: [
-      { t: "07", v: 92 },
-      { t: "08", v: 90 },
-      { t: "09", v: 88 },
-      { t: "10", v: 86 },
-      { t: "11", v: 88 },
-    ],
-    bpTrend: [
-      { t: "07", v: 110 },
-      { t: "08", v: 112 },
-      { t: "09", v: 116 },
-      { t: "10", v: 114 },
-      { t: "11", v: 114 },
-    ],
-  },
-  {
-    bed: "MICU-6",
-    unit: "Medical ICU",
-    unitType: "MICU",
-    name: "Deepak Patel",
-    mrn: "100239",
-    age: 50,
-    sex: "M",
-    dx: "Acute Sepsis & Bilateral Pneumonia — Day-wise manual charting test",
-    provider: "Dr. Shah (Critical Care)",
-    nurse: "RN Davis",
-    los: "1d 2h",
-    totalDays: 1,
-    code: "Full Code",
-    isManualCharting: true,
-    vitals: {
-      bp: "110/70",
-      hr: "84",
-      rr: "18",
-      temp: "37.0°C",
-      spo2: "98%",
-      cvp: "8",
-    },
-    vent: null,
-    infusions: [],
-    alerts: [
-      "📝 Fresh Admission: Ready for manual day-wise clinical flowsheet charting",
-    ],
-    score: { sofa: 2, apache: 8, rass: 0 },
-    hrTrend: [],
-    bpTrend: [],
-  },
+export type IcuMedOrderItem = {
+  drug: string
+  dose: string
+  route: string
+  freq: string
+  instructions: string
+}
 
-  // ── Surgical ICU (SICU) ─────────────────────────────────────────────────
-  {
-    bed: "SICU-1",
-    unit: "Surgical ICU",
-    unitType: "SICU",
-    name: "Robert Taylor",
-    mrn: "200105",
-    age: 71,
-    sex: "M",
-    dx: "Post-op CABG x 3 (LIMA-LAD, SVG-RCA, SVG-OM)",
-    provider: "Dr. Vance (Cardiothoracic)",
-    nurse: "RN O'Connor",
-    los: "5d 8h",
-    totalDays: 5,
-    code: "Full Code",
-    vitals: {
-      bp: "110/64",
-      hr: "84",
-      rr: "16",
-      temp: "37.3°C",
-      spo2: "96%",
-      cvp: "10",
-    },
-    vent: {
-      mode: "CPAP/PS",
-      fio2: "35%",
-      peep: "5",
-      tv: "420mL",
-      rr: "14",
-      pip: "18",
-    },
-    infusions: [
-      {
-        drug: "Nitroglycerin Drip",
-        rate: "10 mcg/min",
-        concentration: "50mg/250mL",
-      },
-    ],
-    alerts: ["✓ Chest tube output < 30mL/hr", "⚠ Pacing wires in situ"],
-    score: { sofa: 6, apache: 16, rass: 0 },
-    hrTrend: [
-      { t: "07", v: 90 },
-      { t: "08", v: 88 },
-      { t: "09", v: 86 },
-      { t: "10", v: 84 },
-      { t: "11", v: 84 },
-    ],
-    bpTrend: [
-      { t: "07", v: 105 },
-      { t: "08", v: 108 },
-      { t: "09", v: 110 },
-      { t: "10", v: 110 },
-      { t: "11", v: 110 },
-    ],
-  },
-  {
-    bed: "SICU-2",
-    unit: "Surgical ICU",
-    unitType: "SICU",
-    name: "Maria Garcia",
-    mrn: "200220",
-    age: 59,
-    sex: "F",
-    dx: "Exploratory Laparotomy s/p Perforated Diverticulitis",
-    provider: "Dr. Vance",
-    nurse: "RN O'Connor",
-    los: "3d 14h",
-    totalDays: 3,
-    code: "Full Code",
-    vitals: {
-      bp: "116/74",
-      hr: "90",
-      rr: "18",
-      temp: "37.8°C",
-      spo2: "95%",
-      cvp: "8",
-    },
-    vent: { mode: "HFNC", fio2: "40%", peep: "0", tv: "—", rr: "18", pip: "—" },
-    infusions: [
-      { drug: "Hydromorphone PCA", rate: "0.2 mg/hr", concentration: "1mg/mL" },
-    ],
-    alerts: ["✓ Abdominal drain output serosanguinous"],
-    score: { sofa: 5, apache: 12, rass: 0 },
-    hrTrend: [
-      { t: "07", v: 94 },
-      { t: "08", v: 92 },
-      { t: "09", v: 90 },
-      { t: "10", v: 90 },
-      { t: "11", v: 90 },
-    ],
-    bpTrend: [
-      { t: "07", v: 112 },
-      { t: "08", v: 114 },
-      { t: "09", v: 116 },
-      { t: "10", v: 116 },
-      { t: "11", v: 116 },
-    ],
-  },
-  {
-    bed: "SICU-3",
-    unit: "Surgical ICU",
-    unitType: "SICU",
-    name: "Appanna Chinnapati",
-    mrn: "100888",
-    age: 54,
-    sex: "M",
-    dx: "Grade IV Splenic Rupture s/p Laparotomy & Splenectomy, Post-op Day 10 (Weaned, Cleared for Ward Stepdown)",
-    provider: "Dr. Vance (Surgery & Critical Care)",
-    nurse: "RN Murphy",
-    los: "10d 0h",
-    totalDays: 10,
-    code: "Full Code",
-    vitals: {
-      bp: "122/76",
-      hr: "74",
-      rr: "16",
-      temp: "36.9°C",
-      spo2: "98%",
-      cvp: "7",
-    },
-    vent: {
-      mode: "Room Air",
-      fio2: "21%",
-      peep: "0",
-      tv: "—",
-      rr: "16",
-      pip: "—",
-    },
-    infusions: [
-      {
-        drug: "IV Fluids (NS 0.9%)",
-        rate: "75 mL/hr",
-        concentration: "1000mL",
-      },
-    ],
-    alerts: [
-      "✓ Extubated Day 5 — room air stable",
-      "✓ Splenic bed drain removed Day 8",
-      "✓ 10-day ICU course complete — cleared for stepdown to Ward 3N Bed 208-A",
-    ],
-    score: { sofa: 1, apache: 6, rass: 0 },
-    hrTrend: [
-      { t: "07", v: 76 },
-      { t: "08", v: 74 },
-      { t: "09", v: 74 },
-      { t: "10", v: 72 },
-      { t: "11", v: 74 },
-    ],
-    bpTrend: [
-      { t: "07", v: 120 },
-      { t: "08", v: 122 },
-      { t: "09", v: 124 },
-      { t: "10", v: 122 },
-      { t: "11", v: 122 },
-    ],
-  },
+export type IcuMedOrder = {
+  items: IcuMedOrderItem[]
+  urgency: "STAT" | "Routine"
+  source: "DIGITAL" | "OCR"
+  imageUrl?: string
+  engine?: string
+}
 
-  // ── Cardiac ICU (CCU) ───────────────────────────────────────────────────
-  {
-    bed: "CCU-1",
-    unit: "Cardiac ICU",
-    unitType: "CCU",
-    name: "Sarah Jenkins",
-    mrn: "300101",
-    age: 64,
-    sex: "F",
-    dx: "Acute Cardiogenic Shock s/p IABP placement",
-    provider: "Dr. Patel (Cardiology)",
-    nurse: "RN Miller",
-    los: "6d 10h",
-    totalDays: 6,
-    code: "Full Code",
-    vitals: {
-      bp: "102/64",
-      hr: "106",
-      rr: "20",
-      temp: "37.4°C",
-      spo2: "93%",
-      cvp: "14",
-    },
-    vent: {
-      mode: "A/C-VC",
-      fio2: "50%",
-      peep: "8",
-      tv: "440mL",
-      rr: "18",
-      pip: "30",
-    },
-    infusions: [
-      {
-        drug: "Dobutamine Drip",
-        rate: "5 mcg/kg/min",
-        concentration: "250mg/250mL",
-      },
-      {
-        drug: "Norepinephrine",
-        rate: "0.08 mcg/kg/min",
-        concentration: "8mg/250mL",
-      },
-    ],
-    alerts: ["⚠ IABP 1:1 augmentation active", "🧪 Cardiac Index 2.1 L/min/m²"],
-    score: { sofa: 8, apache: 20, rass: -2 },
-    hrTrend: [
-      { t: "07", v: 112 },
-      { t: "08", v: 110 },
-      { t: "09", v: 106 },
-      { t: "10", v: 106 },
-      { t: "11", v: 106 },
-    ],
-    bpTrend: [
-      { t: "07", v: 98 },
-      { t: "08", v: 100 },
-      { t: "09", v: 102 },
-      { t: "10", v: 102 },
-      { t: "11", v: 102 },
-    ],
-  },
-  {
-    bed: "CCU-2",
-    unit: "Cardiac ICU",
-    unitType: "CCU",
-    name: null,
-    mrn: "",
-    age: null,
-    sex: null,
-    dx: null,
-    provider: "",
-    nurse: "",
-    los: "",
-    totalDays: 0,
-    code: "",
-    vitals: null,
-    vent: null,
-    infusions: [],
-    alerts: [],
-    score: { sofa: 0, apache: 0, rass: 0 },
-    hrTrend: [],
-    bpTrend: [],
-  },
+const ROUTES = ["IV", "IV infusion", "PO", "RT", "SC", "IM", "Neb", "Topical", "PR", "SL"]
+const blankItem = (): IcuMedOrderItem => ({ drug: "", dose: "", route: "IV", freq: "", instructions: "" })
 
-  // ── Neuro ICU (NICU) ────────────────────────────────────────────────────
-  {
-    bed: "NICU-1",
-    unit: "Neuro ICU",
-    unitType: "NICU",
-    name: "Charles Adams",
-    mrn: "400101",
-    age: 67,
-    sex: "M",
-    dx: "Acute Basilar Artery Stroke s/p Mechanical Thrombectomy",
-    provider: "Dr. Wong (Neurosurgery)",
-    nurse: "RN Harris",
-    los: "7d 4h",
-    totalDays: 7,
-    code: "Full Code",
-    vitals: {
-      bp: "138/82",
-      hr: "76",
-      rr: "16",
-      temp: "36.9°C",
-      spo2: "98%",
-      cvp: "8",
-    },
-    vent: {
-      mode: "Nasal Cannula",
-      fio2: "28%",
-      peep: "0",
-      tv: "—",
-      rr: "16",
-      pip: "—",
-    },
-    infusions: [
-      {
-        drug: "Labetalol Drip",
-        rate: "2 mg/min",
-        concentration: "200mg/200mL",
-      },
-    ],
-    alerts: ["✓ EVD closed, ICP 11 mmHg", "🧠 NIHSS improved to 4"],
-    score: { sofa: 4, apache: 13, rass: 0 },
-    hrTrend: [
-      { t: "07", v: 78 },
-      { t: "08", v: 76 },
-      { t: "09", v: 76 },
-      { t: "10", v: 76 },
-      { t: "11", v: 76 },
-    ],
-    bpTrend: [
-      { t: "07", v: 142 },
-      { t: "08", v: 140 },
-      { t: "09", v: 138 },
-      { t: "10", v: 138 },
-      { t: "11", v: 138 },
-    ],
-  },
-  {
-    bed: "NICU-2",
-    unit: "Neuro ICU",
-    unitType: "NICU",
-    name: null,
-    mrn: "",
-    age: null,
-    sex: null,
-    dx: null,
-    provider: "",
-    nurse: "",
-    los: "",
-    totalDays: 0,
-    code: "",
-    vitals: null,
-    vent: null,
-    infusions: [],
-    alerts: [],
-    score: { sofa: 0, apache: 0, rass: 0 },
-    hrTrend: [],
-    bpTrend: [],
-  },
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(file)
+  })
+}
 
-  // ── Pediatric ICU (PICU) ────────────────────────────────────────────────
-  {
-    bed: "PICU-1",
-    unit: "Pediatric ICU",
-    unitType: "PICU",
-    name: "Baby Emma Davis",
-    mrn: "500101",
-    age: 2,
-    sex: "F",
-    dx: "RSV Bronchiolitis with Severe Respiratory Distress",
-    provider: "Dr. Lin (Pediatric ICU)",
-    nurse: "RN Taylor",
-    los: "4d 18h",
-    totalDays: 4,
-    code: "Full Code",
-    vitals: {
-      bp: "90/55",
-      hr: "128",
-      rr: "36",
-      temp: "38.1°C",
-      spo2: "96%",
-      cvp: "6",
-    },
-    vent: {
-      mode: "Pediatric HFNC",
-      fio2: "35%",
-      peep: "0",
-      tv: "—",
-      rr: "36",
-      pip: "—",
-    },
-    infusions: [
-      { drug: "D5 1/4 NS", rate: "25 mL/hr", concentration: "500mL" },
-    ],
-    alerts: ["✓ Work of breathing improved"],
-    score: { sofa: 2, apache: 8, rass: 0 },
-    hrTrend: [
-      { t: "07", v: 135 },
-      { t: "08", v: 130 },
-      { t: "09", v: 128 },
-      { t: "10", v: 128 },
-      { t: "11", v: 128 },
-    ],
-    bpTrend: [
-      { t: "07", v: 88 },
-      { t: "08", v: 90 },
-      { t: "09", v: 90 },
-      { t: "10", v: 90 },
-      { t: "11", v: 90 },
-    ],
-  },
-]
-
+/**
+ * "+ New Order": medication orders for the patient in this bed. Lines are
+ * typed, or read from a photographed / scanned prescription by the same
+ * prescription reader the doctor portal uses. Every line stays editable, and
+ * nothing is sent until the doctor submits.
+ */
 function PharmacyOrderModal({
   patient,
   isOpen,
   onClose,
-  onOrderSubmitted,
+  onSubmit,
 }: {
   patient: IcuPatient
   isOpen: boolean
   onClose: () => void
-  onOrderSubmitted: (order: {
-    drug: string
-    dose: string
-    route: string
-    freq: string
-    urgency: string
-    notes: string
-  }) => void
+  onSubmit: (order: IcuMedOrder) => Promise<void> | void
 }) {
-  const { dateStr, timeStr } = getCurrentDateTimeFormatted()
-  const [selectedRx, setSelectedRx] = useState<SampleHandwrittenRx>(
-    SAMPLE_HANDWRITTEN_PRESCRIPTIONS[0],
-  )
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
-  const [isScanning, setIsScanning] = useState(false)
-  const [extractedItems, setExtractedItems] =
-    useState<ExtractedRxItem[] | null>(null)
-  const [showManualFallback, setShowManualFallback] = useState(false)
+  const [items, setItems] = useState<IcuMedOrderItem[]>([blankItem()])
+  const [urgency, setUrgency] = useState<"STAT" | "Routine">("STAT")
+  const [scan, setScan] = useState<{ name: string ;dataUrl?: string ;engine?: string } | null>(null)
+  const [reading, setReading] = useState(false)
+  const [readError, setReadError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  // Single manual order fallback state
-  const [manualDrug, setManualDrug] = useState("")
-  const [manualDose, setManualDose] = useState("")
-  const [manualRoute, setManualRoute] = useState("IV")
-  const [manualFreq, setManualFreq] = useState("Continuous")
-
-  const suggestedMeds = useMemo(
-    () => getPatientSuggestedMedications(patient.dx),
-    [patient.dx],
-  )
+  useEffect(() => {
+    if (!isOpen) return
+    setItems([blankItem()])
+    setUrgency("STAT")
+    setScan(null)
+    setReadError(null)
+    setReading(false)
+    setSubmitting(false)
+  }, [isOpen, patient.mrn])
 
   if (!isOpen) return null
 
-  const handleRunOcrScan = () => {
-    setIsScanning(true)
-    setExtractedItems(null)
-    setTimeout(() => {
-      setIsScanning(false)
-      setExtractedItems(selectedRx.extractedItems)
-    }, 1000)
-  }
+  const valid = items.filter((i) => i.drug.trim())
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setUploadedFileName(file.name)
-      // Auto-trigger OCR extraction on upload
-      setIsScanning(true)
-      setExtractedItems(null)
-      setTimeout(() => {
-        setIsScanning(false)
-        setExtractedItems(selectedRx.extractedItems)
-      }, 1100)
+  const onFile = async (file: File | undefined) => {
+    if (!file) return
+    setReading(true)
+    setReadError(null)
+    let dataUrl: string | undefined
+    try {
+      if (file.type.startsWith("image/")) dataUrl = await readAsDataUrl(file)
+    } catch {}
+    setScan({ name: file.name, dataUrl })
+    try {
+      const split = await splitPrescriptionFile(file, file.name)
+      const read = split.medications
+        .filter((m) => m.name.trim())
+        .map((m) => ({
+          drug: [m.name, m.strength].filter(Boolean).join(" ").trim(),
+          dose: m.dosage || "",
+          route: m.route || "",
+          freq: m.frequency || "",
+          instructions: [m.duration, m.instructions].filter(Boolean).join(" · "),
+        }))
+      setScan({ name: file.name, dataUrl, engine: split.engine })
+      if (read.length === 0) {
+        setReadError(
+          split.degradedReason
+            ? `The prescription reader is unavailable (${split.degradedReason}). Type the medicines below.`
+            : "No medicines could be read from this sheet. Type them below.",
+        )
+      } else {
+        setItems((prev) => [...read, ...prev.filter((i) => i.drug.trim())])
+      }
+    } catch (e) {
+      setReadError(
+        `The sheet could not be read${e instanceof Error ? ` (${e.message})` : ""}. Type the medicines below.`,
+      )
+    } finally {
+      setReading(false)
     }
   }
 
-  const handleItemChange = (
-    idx: number,
-    field: keyof ExtractedRxItem,
-    val: string | number,
-  ) => {
-    if (!extractedItems) return
-    const updated = [...extractedItems]
-    updated[idx] = { ...updated[idx], [field]: val }
-    setExtractedItems(updated)
-  }
+  const update = (idx: number, key: keyof IcuMedOrderItem, v: string) =>
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, [key]: v } : it)))
 
-  const handleRemoveItem = (idx: number) => {
-    if (!extractedItems) return
-    setExtractedItems(extractedItems.filter((_, i) => i !== idx))
-  }
-
-  const handleAddBlankItem = () => {
-    const newItem: ExtractedRxItem = {
-      drug: "New Prescribed Drug",
-      dose: "100 mg",
-      route: "PO",
-      freq: "OD",
-      instructions: "Take after food",
-      confidence: 99,
-    }
-    setExtractedItems(extractedItems ? [...extractedItems, newItem] : [newItem])
-  }
-
-  const handleSubmitOcrBulk = () => {
-    if (!extractedItems || extractedItems.length === 0) return
-    extractedItems.forEach((item) => {
-      onOrderSubmitted({
-        drug: item.drug,
-        dose: item.dose,
-        route: item.route,
-        freq: item.freq,
-        urgency: "STAT",
-        notes: `Digitized via Keppler OCR from ${selectedRx.doctorName} handwritten prescription sheet (${dateStr} ${timeStr}). ${item.instructions}`,
+  const submit = async () => {
+    if (valid.length === 0) return
+    setSubmitting(true)
+    try {
+      await onSubmit({
+        items: valid.map((i) => ({ ...i, drug: i.drug.trim() })),
+        urgency,
+        source: scan ? "OCR" : "DIGITAL",
+        imageUrl: scan?.dataUrl,
+        engine: scan?.engine,
       })
-    })
-    onClose()
-  }
-
-  const handleManualSubmitSingle = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!manualDrug) return
-    onOrderSubmitted({
-      drug: manualDrug,
-      dose: manualDose || "Standard",
-      route: manualRoute,
-      freq: manualFreq,
-      urgency: "STAT",
-      notes: `Single order submitted manually by ${patient.provider || "Doctor"}.`,
-    })
-    onClose()
+      onClose()
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white border border-[#CBD5E1] shadow-2xl w-full max-w-3xl overflow-hidden rounded-none">
-        {/* Header */}
-        <div className="bg-[#1B4FD8] text-white px-5 py-3.5 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[18px]">📄</span>
-              <h3 className="text-[16px] font-bold tracking-tight">
-                Prescription Upload & AI Digitization Portal
-              </h3>
-              <span className="bg-[#DCFCE7] text-[#15803D] text-[10px] font-extrabold px-2 py-0.5 rounded-none">
-                OCR ACTIVE
-              </span>
-            </div>
-            <p className="text-[11.5px] text-blue-100 mt-0.5">
-              Upload doctor&apos;s handwritten prescription sheet containing
-              multiple medications for automatic digitization & pharmacy
-              dispatch.
-            </p>
-          </div>
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="New medication order"
+        className="bg-white w-full max-w-3xl shadow-xl border border-[#E2E8F0] max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-[#EDF1F7] flex items-center gap-2">
+          <span className="w-1 h-4 bg-[#1B4FD8]" />
+          <h3 className="text-[13px] font-bold text-[#0F172A] flex-1">
+            New medication order — {patient.name}
+            <span className="text-[#64748B] font-medium">
+              {" "}· {patient.bed} · MRN {patient.mrn}
+            </span>
+          </h3>
           <button
             type="button"
             onClick={onClose}
-            className="text-white hover:text-blue-200 font-bold text-[20px] cursor-pointer"
+            aria-label="Close"
+            className="text-[#94A3B8] hover:text-[#0F172A] text-[16px] leading-none cursor-pointer"
           >
-            ✕
+            ×
           </button>
         </div>
 
-        {/* Patient Info Bar */}
-        <div className="bg-[#F8FAFC] border-b border-[#E2E8F0] px-5 py-2.5 flex items-center justify-between text-[11.5px] text-[#334155]">
-          <div>
-            Patient:{" "}
-            <strong className="text-[#0F172A]">
-              {patient.name || "Bed Occupant"}
-            </strong>{" "}
-            ({patient.bed} · MRN{" "}
-            <span className="font-mono">{patient.mrn}</span>)
-            <span className="ml-2 text-[#64748B]">
-              · Diagnosis: {patient.dx || "ICU Care"}
+        <div className="p-4 space-y-3 overflow-y-auto">
+          <div className="flex flex-wrap items-center gap-3 border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-3 py-2.5">
+            <label className="text-[12px] font-semibold text-[#1B4FD8] cursor-pointer">
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  onFile(e.target.files?.[0])
+                  e.target.value = ""
+                }}
+              />
+              Upload prescription sheet
+            </label>
+            <span className="text-[11.5px] text-[#64748B] flex-1 min-w-0 truncate">
+              {reading
+                ? `Reading ${scan?.name ?? "sheet"}…`
+                : scan
+                  ? `${scan.name}${scan.engine ? ` · read by ${scan.engine}` : ""} — check every line before sending`
+                  : "Optional. Photographed or scanned sheets are read automatically; you can also type the lines."}
             </span>
           </div>
-          <div className="font-mono text-[#1E3A8A]">
-            Auto-Timestamp: <strong>{dateStr}</strong> at{" "}
-            <strong>{timeStr}</strong>
-          </div>
+          {readError && (
+            <div className="text-[11.5px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-2">
+              {readError}
+            </div>
+          )}
+
+          <table className="w-full text-[12px] border-collapse">
+            <thead>
+              <tr className="text-left text-[10.5px] uppercase tracking-wider text-[#64748B]">
+                <th className="py-1 pr-2 w-[30%]">Drug</th>
+                <th className="py-1 pr-2">Dose</th>
+                <th className="py-1 pr-2">Route</th>
+                <th className="py-1 pr-2">Frequency</th>
+                <th className="py-1 pr-2 w-[24%]">Instructions</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, idx) => (
+                <tr key={idx}>
+                  <td className="py-1 pr-2">
+                    <input className={modalInput} value={it.drug} placeholder="Drug and strength" onChange={(e) => update(idx, "drug", e.target.value)} />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input className={modalInput} value={it.dose} placeholder="e.g. 1 g" onChange={(e) => update(idx, "dose", e.target.value)} />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input className={modalInput} list="icu-order-routes" value={it.route} onChange={(e) => update(idx, "route", e.target.value)} />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input className={modalInput} value={it.freq} placeholder="e.g. 8th hourly" onChange={(e) => update(idx, "freq", e.target.value)} />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input className={modalInput} value={it.instructions} onChange={(e) => update(idx, "instructions", e.target.value)} />
+                  </td>
+                  <td className="py-1 text-right">
+                    <button
+                      type="button"
+                      aria-label="Remove line"
+                      onClick={() =>
+                        setItems((prev) => (prev.length === 1 ? [blankItem()] : prev.filter((_, i) => i !== idx)))
+                      }
+                      className="text-[#94A3B8] hover:text-[#DC2626] px-1 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <datalist id="icu-order-routes">
+            {ROUTES.map((r) => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
+          <button
+            type="button"
+            onClick={() => setItems((prev) => [...prev, blankItem()])}
+            className="text-[12px] font-semibold text-[#1B4FD8] hover:underline cursor-pointer"
+          >
+            + Add line
+          </button>
         </div>
 
-        <div className="p-5 overflow-y-auto max-h-[82vh] space-y-4">
-          {/* Main Upload Box */}
-          <div className="border-2 border-dashed border-[#1B4FD8]/40 bg-[#F0F5FF] p-6 text-center space-y-3">
-            <div className="text-[14px] font-bold text-[#1E3A8A]">
-              📷 Upload Doctor&apos;s Paper Prescription Sheet (PNG, JPG, PDF)
-            </div>
-            <p className="text-[12px] text-[#475569] max-w-lg mx-auto">
-              Upload or capture a photo of the doctor&apos;s handwritten paper
-              prescription sheet. Keppler AI OCR will read all prescribed
-              medications simultaneously into structured orders.
-            </p>
-
-            <div className="flex flex-col items-center justify-center gap-3 pt-2">
-              <label className="bg-[#1B4FD8] hover:bg-[#1541B0] text-white px-6 py-2.5 text-[13px] font-bold shadow-md cursor-pointer transition-colors inline-flex items-center gap-2">
-                <span>📁 Upload / Capture Prescription Photo</span>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
-              {uploadedFileName ? (
-                <span className="text-[12px] font-mono bg-white text-[#15803D] border border-[#BBF7D0] px-3 py-1 font-bold">
-                  ✓ {uploadedFileName}
-                </span>
-              ) : (
-                <span className="text-[11px] text-[#64748B]">
-                  Supported formats: JPG, PNG, WEBP, PDF
-                </span>
-              )}
-            </div>
-
-            <div className="pt-2 flex justify-center">
-              <Btn
-                variant="primary"
-                size="sm"
-                onClick={handleRunOcrScan}
-                disabled={isScanning}
-              >
-                {isScanning
-                  ? "Processing Document AI OCR…"
-                  : "⚡ Digitize Uploaded Prescription Sheet"}
-              </Btn>
-            </div>
-          </div>
-
-          {/* OCR Processing Overlay */}
-          {isScanning && (
-            <div className="p-6 bg-[#EFF6FF] border border-[#BFDBFE] text-center space-y-2">
-              <div className="inline-block w-6 h-6 border-2 border-[#1B4FD8] border-t-transparent animate-spin" />
-              <div className="font-bold text-[#1E3A8A] text-[13px]">
-                Keppler AI OCR & Medical Text Summarizer Active
-              </div>
-              <div className="text-[11.5px] text-[#475569]">
-                Reading doctor handwriting, deciphering multi-medication names,
-                dosages, routes, and clinical instructions...
-              </div>
-            </div>
-          )}
-
-          {/* Extracted Multiple Medications Table */}
-          {extractedItems && !isScanning && (
-            <div className="border border-[#BBF7D0] bg-[#F0FDF4] p-4 space-y-3">
-              <div className="flex items-center justify-between border-b border-[#BBF7D0] pb-2.5">
-                <div>
-                  <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 mr-2">
-                    DIGITIZED PRESCRIPTION SHEET
-                  </span>
-                  <strong className="text-[#0F172A] text-[13px]">
-                    {selectedRx.doctorName}
-                  </strong>
-                  <span className="text-[#64748B] text-[11.5px] ml-2 font-mono">
-                    ({selectedRx.specialty})
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[11px] text-[#15803D] font-bold block">
-                    ✓ {extractedItems.length} Multiple Medications Extracted
-                  </span>
-                  <span className="text-[10px] text-[#64748B]">
-                    Verify and edit details before dispatching
-                  </span>
-                </div>
-              </div>
-
-              {/* Table of extracted multiple medications */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11.5px] border-collapse bg-white shadow-xs">
-                  <thead>
-                    <tr className="bg-[#F8FAFC]">
-                      <th className="border border-[#CBD5E1] px-2.5 py-1.5 text-left font-bold text-[#475569]">
-                        Medication Name
-                      </th>
-                      <th className="border border-[#CBD5E1] px-2.5 py-1.5 text-left font-bold text-[#475569]">
-                        Dose
-                      </th>
-                      <th className="border border-[#CBD5E1] px-2.5 py-1.5 text-left font-bold text-[#475569]">
-                        Route
-                      </th>
-                      <th className="border border-[#CBD5E1] px-2.5 py-1.5 text-left font-bold text-[#475569]">
-                        Frequency
-                      </th>
-                      <th className="border border-[#CBD5E1] px-2.5 py-1.5 text-left font-bold text-[#475569]">
-                        Special Instructions
-                      </th>
-                      <th className="border border-[#CBD5E1] px-2.5 py-1.5 text-center font-bold text-[#475569]">
-                        AI Confidence
-                      </th>
-                      <th className="border border-[#CBD5E1] px-1.5 py-1.5 text-center font-bold text-[#475569]">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {extractedItems.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-[#CBD5E1] hover:bg-[#F8FAFC]"
-                      >
-                        <td className="border border-[#CBD5E1] p-1">
-                          <input
-                            type="text"
-                            value={item.drug}
-                            onChange={(e) =>
-                              handleItemChange(idx, "drug", e.target.value)
-                            }
-                            className="w-full font-bold text-[#0F172A] border-0 outline-none px-1 bg-transparent"
-                          />
-                        </td>
-                        <td className="border border-[#CBD5E1] p-1 font-mono">
-                          <input
-                            type="text"
-                            value={item.dose}
-                            onChange={(e) =>
-                              handleItemChange(idx, "dose", e.target.value)
-                            }
-                            className="w-full border-0 outline-none px-1 bg-transparent"
-                          />
-                        </td>
-                        <td className="border border-[#CBD5E1] p-1 font-mono">
-                          <select
-                            value={item.route}
-                            onChange={(e) =>
-                              handleItemChange(idx, "route", e.target.value)
-                            }
-                            className="w-full border-0 outline-none px-1 bg-transparent"
-                          >
-                            <option value="IV">IV</option>
-                            <option value="PO">PO</option>
-                            <option value="SC">SC</option>
-                            <option value="IM">IM</option>
-                            <option value="Neb">Neb</option>
-                            <option value="NG/RT">NG/RT</option>
-                          </select>
-                        </td>
-                        <td className="border border-[#CBD5E1] p-1 font-mono">
-                          <select
-                            value={item.freq}
-                            onChange={(e) =>
-                              handleItemChange(idx, "freq", e.target.value)
-                            }
-                            className="w-full border-0 outline-none px-1 bg-transparent"
-                          >
-                            <option value="Continuous">Continuous</option>
-                            <option value="STAT">STAT</option>
-                            <option value="OD">OD</option>
-                            <option value="BD">BD</option>
-                            <option value="Q8H">Q8H</option>
-                            <option value="Q6H">Q6H</option>
-                            <option value="Q12H">Q12H</option>
-                          </select>
-                        </td>
-                        <td className="border border-[#CBD5E1] p-1 text-[#475569]">
-                          <input
-                            type="text"
-                            value={item.instructions}
-                            onChange={(e) =>
-                              handleItemChange(
-                                idx,
-                                "instructions",
-                                e.target.value,
-                              )
-                            }
-                            className="w-full border-0 outline-none px-1 bg-transparent text-[11px]"
-                          />
-                        </td>
-                        <td className="border border-[#CBD5E1] p-1 text-center">
-                          <span className="bg-[#DCFCE7] text-[#15803D] font-mono text-[10.5px] font-bold px-1.5 py-0.5">
-                            {item.confidence}% 🟢
-                          </span>
-                        </td>
-                        <td className="border border-[#CBD5E1] p-1 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(idx)}
-                            className="text-[#B91C1C] hover:text-red-800 font-bold text-[12px] px-1"
-                            title="Remove drug"
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <button
-                  type="button"
-                  onClick={handleAddBlankItem}
-                  className="text-[11.5px] font-bold text-[#1B4FD8] hover:underline cursor-pointer"
-                >
-                  + Add another drug to this prescription sheet
-                </button>
-
-                <div className="flex items-center gap-2">
-                  <Btn variant="outline" size="sm" onClick={onClose}>
-                    Cancel
-                  </Btn>
-                  <Btn
-                    variant="primary"
-                    size="sm"
-                    onClick={handleSubmitOcrBulk}
-                  >
-                    🚀 Approve & Dispatch All {extractedItems.length}{" "}
-                    Medications to Pharmacy
-                  </Btn>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Secondary Collapsible: Single Order Fallback */}
-          <div className="pt-2 border-t border-[#E2E8F0]">
+        <div className="px-4 py-3 border-t border-[#EDF1F7] flex items-center gap-2">
+          <span className="text-[11px] text-[#64748B] mr-1">Priority</span>
+          {(["STAT", "Routine"] as const).map((u) => (
             <button
+              key={u}
               type="button"
-              onClick={() => setShowManualFallback(!showManualFallback)}
-              className="text-[11px] font-bold text-[#64748B] hover:text-[#0F172A] cursor-pointer flex items-center gap-1"
+              onClick={() => setUrgency(u)}
+              className={`px-2.5 py-1 text-[11px] font-semibold border cursor-pointer ${
+                urgency === u ? "bg-slate-900 text-white border-slate-900" : "bg-white text-[#64748B] border-[#CBD5E1]"
+              }`}
             >
-              <span>
-                {showManualFallback
-                  ? "▼ Hide"
-                  : "▶ Need to order a single custom medication manually without paper upload?"}
-              </span>
+              {u}
             </button>
-
-            {showManualFallback && (
-              <form
-                onSubmit={handleManualSubmitSingle}
-                className="mt-3 p-3 bg-[#F8FAFC] border border-[#CBD5E1] text-[12px] space-y-3"
-              >
-                <div className="text-[11px] font-bold text-[#475569] uppercase">
-                  Single Custom Drug Order
-                </div>
-
-                {/* Doctor suggested pills */}
-                <div>
-                  <span className="text-[10.5px] text-[#64748B] block mb-1">
-                    Click diagnosis suggested medication:
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {suggestedMeds.map((m) => (
-                      <button
-                        key={m.drug}
-                        type="button"
-                        onClick={() => {
-                          setManualDrug(m.drug)
-                          setManualDose(m.dose)
-                          setManualRoute(m.route)
-                          setManualFreq(m.freq)
-                        }}
-                        className="px-2 py-0.5 bg-white border border-[#CBD5E1] hover:border-[#1B4FD8] text-[10.5px] font-medium"
-                      >
-                        {m.drug} ({m.dose})
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-2">
-                  <input
-                    type="text"
-                    placeholder="Drug Name"
-                    value={manualDrug}
-                    onChange={(e) => setManualDrug(e.target.value)}
-                    className="border border-[#CBD5E1] px-2 py-1 bg-white"
-                    required
-                  />
-                  <input
-                    type="text"
-                    placeholder="Dose"
-                    value={manualDose}
-                    onChange={(e) => setManualDose(e.target.value)}
-                    className="border border-[#CBD5E1] px-2 py-1 bg-white font-mono"
-                    required
-                  />
-                  <select
-                    value={manualRoute}
-                    onChange={(e) => setManualRoute(e.target.value)}
-                    className="border border-[#CBD5E1] px-2 py-1 bg-white"
-                  >
-                    <option value="IV">IV</option>
-                    <option value="PO">PO</option>
-                    <option value="SC">SC</option>
-                    <option value="IM">IM</option>
-                  </select>
-                  <select
-                    value={manualFreq}
-                    onChange={(e) => setManualFreq(e.target.value)}
-                    className="border border-[#CBD5E1] px-2 py-1 bg-white"
-                  >
-                    <option value="Continuous">Continuous</option>
-                    <option value="STAT">STAT</option>
-                    <option value="OD">OD</option>
-                    <option value="BD">BD</option>
-                  </select>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-1">
-                  <Btn variant="primary" size="sm" type="submit">
-                    Submit Single Order
-                  </Btn>
-                </div>
-              </form>
-            )}
-          </div>
+          ))}
+          <span className="flex-1" />
+          <Btn variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Btn>
+          <Btn variant="primary" size="sm" disabled={valid.length === 0 || submitting || reading} onClick={submit}>
+            {submitting ? "Sending…" : `Send to pharmacy${valid.length ? ` (${valid.length})` : ""}`}
+          </Btn>
         </div>
       </div>
     </div>
@@ -1757,6 +844,14 @@ const ACUITY = {
     tint: "#F0FDF4",
     border: "#BBF7D0",
   },
+  // Occupied, but nothing charted yet -- a patient just placed in an ICU bed
+  // from Bed Management. Reading them as "Available" would hide them.
+  pending: {
+    label: "Vitals pending",
+    color: "#2563EB",
+    tint: "#EFF6FF",
+    border: "#BFDBFE",
+  },
   empty: {
     label: "Available",
     color: "#64748B",
@@ -1765,61 +860,44 @@ const ACUITY = {
   },
 } as const
 
-function acuityOf(p: {
-  name?: string | null
-  vitals?: { spo2: string ;hr: string } | null
-}) {
-  if (!p.name || !p.vitals) return ACUITY.empty
-  const spo2 = num(p.vitals.spo2)
-  const hr = num(p.vitals.hr)
-  if (spo2 < 93 || hr > 110) return ACUITY.critical
-  if (spo2 < 96 || hr > 100) return ACUITY.watch
-  return ACUITY.stable
+// Colour for a charted vital; an uncharted one ("—") is neutral.
+function vitalState(raw: string | undefined, rule: (v: number) => "ok" | "warn" | "crit"): "ok" | "warn" | "crit" {
+  const v = num(raw ?? "")
+  return Number.isFinite(v) ? rule(v) : "ok"
+}
+
+function acuityOf(p: { name?: string | null ;live?: LiveState }) {
+  return ACUITY[acuityKey(p.live ?? null, Boolean(p.name))]
 }
 
 function MultiDayFlowchartMatrix({
   patientId,
   patientName,
   totalDays = 1,
-  isManualCharting = false,
+  isManualCharting = true,
+  revision = 0,
   onSelectDate,
 }: {
   patientId: string
   patientName: string
   totalDays?: number
   isManualCharting?: boolean
+  /** Bumped whenever a chart for this patient is saved or synced. */
+  revision?: number
   onSelectDate: (dateStr: string) => void
 }) {
   const stayDays = useMemo(() => getPatientStayDays(totalDays), [totalDays])
 
+  // Each day's chart as recorded (cache synced from the clinical record by
+  // the board). An uncharted day is an empty chart, never generated data.
   const records = useMemo(() => {
     return stayDays.map((sd) => {
-      let rec: FlowsheetRecord
-      try {
-        const raw = localStorage.getItem(
-          `icu.flowsheet.${patientId}.${sd.dateStr}`,
-        )
-        if (raw) {
-          rec = JSON.parse(raw)
-        } else if (patientId === "100239") {
-          rec = generateDeepakDay1FullRecord(sd.dateStr)
-        } else if (isManualCharting) {
-          rec = emptyRecord(patientId, sd.dateStr)
-        } else {
-          rec = generateSeedRecord(
-            patientId,
-            sd.dayNumber,
-            sd.dateStr,
-            totalDays,
-          )
-        }
-      } catch {
-        rec = emptyRecord(patientId, sd.dateStr)
-      }
-      const summary = flowsheetSummary(patientId, sd.dateStr)
-      return { sd, rec, summary }
+      const rec: FlowsheetRecord = loadRecord(patientId, sd.dateStr)
+      const live = deriveLiveState(rec)
+      return { sd, rec, live, summary: { total: countEntries(rec) } }
     })
-  }, [patientId, stayDays, totalDays, isManualCharting])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId, stayDays, totalDays, isManualCharting, revision])
 
   return (
     <Panel
@@ -1872,16 +950,16 @@ function MultiDayFlowchartMatrix({
             </tr>
           </thead>
           <tbody>
-            {records.map(({ sd, rec, summary }) => {
+            {records.map(({ sd, rec, live, summary }) => {
               const isChartEmpty = summary.total === 0
-              const hr = rec.hourly.observations?.[`12:00|hr`]
-              const bp = rec.hourly.observations?.[`12:00|bp`]
-              const temp = rec.hourly.observations?.[`12:00|temp`]
-              const ventMode = rec.hourly.observations?.[`12:00|vent_mode`]
-              const fio2 = rec.hourly.observations?.[`12:00|fio2`]
-              const peep = rec.hourly.observations?.[`12:00|peep`]
-              const rass = rec.hourly.rass?.[`12:00|score`]
-              const gcsTotal = rec.scales.gcs?.[`12:00|eyes`] ? "14" : ""
+              const hr = live.vitals?.hr
+              const bp = live.vitals?.bp
+              const temp = live.vitals?.temp
+              const ventMode = live.vent?.mode
+              const fio2 = live.vent?.fio2
+              const peep = live.vent?.peep
+              const rass = live.rass ? `${live.rass.score} ${live.rass.label}` : ""
+              const gcsTotal = live.gcs ? String(live.gcs.total) : ""
               const intake = rec.fields["balance_24h.intake"]
               const output = rec.fields["balance_24h.output"]
               const netBal = rec.fields["balance_24h.balance"]
@@ -2023,58 +1101,261 @@ const UNIT_LABEL: Record<string, string> = {
   CCU: "Cardiac ICU",
   NICU: "Neuro ICU",
   PICU: "Pediatric ICU",
+  WARD: "ICU Ward",
 }
 
-const ICU_BEDS_STORAGE_KEY = "hms_icu_beds_dataset_v5"
 
-function getInitialIcuBeds(): IcuPatient[] {
-  try {
-    const raw = localStorage.getItem(ICU_BEDS_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p) => {
-          // If a manually admitted patient was saved with stale demo totalDays (e.g. 7), sanitize to Day 1
-          if (
-            p.name === "Ravi Kumar" ||
-            (p.isManualCharting && p.name !== "Deepak Patel" && (p.totalDays || 0) > 1)
-          ) {
-            if (p.mrn) {
-              try {
-                const prefix = `icu.flowsheet.${p.mrn}.`
-                for (let i = localStorage.length - 1; i >= 0; i--) {
-                  const k = localStorage.key(i)
-                  if (k?.startsWith(prefix)) localStorage.removeItem(k)
-                }
-              } catch {}
-            }
-            return {
-              ...p,
-              totalDays: 1,
-              los: "1d (Fresh Admission)",
-              isManualCharting: true,
-            }
-          }
-          return p
-        })
-      }
+// ── Bed Management → Critical Care ─────────────────────────────────────────
+// A bed is critical care when Bed Management types it ICU, or when its ward or
+// room is named as one (ward is free text, so "Intensive Care Unit (ICU)",
+// "SICU", "Cardiac ICU" and an ICU-type bed on "2nd Floor" all count).
+export function isCriticalCareBed(bed: Pick<BedRecord, "bed_type" | "ward" | "room_no">): boolean {
+  if ((bed.bed_type || "").toUpperCase() === "ICU") return true
+  const text = `${bed.ward || ""} ${bed.room_no || ""}`.toUpperCase()
+  return /\b(ICU|MICU|SICU|CCU|NICU|PICU|ICCU|HDU)\b/.test(text) || text.includes("INTENSIVE CARE") || text.includes("CRITICAL CARE")
+}
+
+// Which Critical Care sub-page a bed belongs on, read from its room and ward
+// names. Room is checked before ward because a room ("SICU") is more specific
+// than the floor it sits on. A bed nothing names as a unit -- including a
+// combined "Medical/Surgical" ward -- is listed under ICU Ward rather than
+// guessed into one, so it is never missing from the ICU.
+export function classifyIcuUnit(bed: Pick<BedRecord, "ward" | "room_no">): IcuUnitType {
+  for (const raw of [bed.room_no, bed.ward]) {
+    const t = (raw || "").toUpperCase()
+    if (!t) continue
+    if (/\bSICU\b/.test(t)) return "SICU"
+    if (/\bMICU\b/.test(t)) return "MICU"
+    if (/\bPICU\b/.test(t) || /PA?EDIATRIC/.test(t)) return "PICU"
+    if (/\bNICU\b/.test(t) || t.includes("NEURO")) return "NICU"
+    if (/\b(CCU|ICCU|CICU)\b/.test(t) || t.includes("CARDIAC") || t.includes("CORONARY")) return "CCU"
+    const medical = t.includes("MEDICAL")
+    const surgical = t.includes("SURGICAL")
+    if (medical && surgical) return "WARD"
+    if (surgical) return "SICU"
+    if (medical) return "MICU"
+  }
+  return "WARD"
+}
+
+// The label shown on the census strip. It must be unique across the board
+// (it is the selection key), so a bare bed number ("2") carries its room.
+function syncedBedLabel(bed: BedRecord): string {
+  const bedNo = String(bed.bed_no || "").trim()
+  const room = String(bed.room_no || "").trim()
+  if (!bedNo) return `${room || "Bed"}-${bed.id}`
+  if (/^\d+$/.test(bedNo) && room && !bedNo.startsWith(room)) return `${room}-${bedNo}`
+  return bedNo
+}
+
+function sexOf(gender: string | null): "M" | "F" | null {
+  const g = (gender || "").trim().toUpperCase()
+  if (g.startsWith("M")) return "M"
+  if (g.startsWith("F")) return "F"
+  return null
+}
+
+function stayDaysSince(iso: string | null): number {
+  if (!iso) return 1
+  const start = new Date(iso).getTime()
+  if (Number.isNaN(start)) return 1
+  return Math.max(1, Math.floor((Date.now() - start) / 86_400_000) + 1)
+}
+
+const dashIfNull = (v: string | null | undefined) => (v == null || v === "" ? "—" : v)
+
+/**
+ * One board entry: who is in the bed (Bed Management) and how they are
+ * (today's chart). Nothing is filled in that was not recorded.
+ */
+function bedToIcuPatient(bed: BedRecord, live: LiveState): IcuPatient {
+  const unitType = classifyIcuUnit(bed)
+  const occupied = bed.status === "Occupied" && Boolean(bed.patient_id || bed.patient_name)
+  const since = bed.allocated_at || bed.admission_date
+  const days = occupied ? stayDaysSince(since) : 0
+  const fullName = [bed.patient_name, bed.patient_last_name].filter(Boolean).join(" ").trim()
+  const lv = occupied ? live : null
+  return {
+    bed: syncedBedLabel(bed),
+    unit: `${UNIT_LABEL[unitType]} · ${bed.ward}${bed.room_no ? ` / ${bed.room_no}` : ""}`,
+    unitType,
+    source: "bed_management",
+    bedId: bed.id,
+    ward: bed.ward,
+    admissionId: bed.admission_id,
+    admittedAt: occupied ? since : null,
+    bedStatus: bed.status,
+    live: lv ?? undefined,
+    name: occupied ? fullName || "Unnamed patient" : null,
+    mrn: occupied ? String(bed.patient_id || "") : "",
+    age: occupied ? bed.patient_age : null,
+    sex: occupied ? sexOf(bed.patient_gender) : null,
+    dx: occupied ? lv?.diagnosis || bed.admission_notes || "Diagnosis not recorded" : null,
+    provider: occupied ? lv?.consultant || "" : "",
+    nurse: occupied ? lv?.nurse || "" : "",
+    los: occupied ? `${days}d` : "",
+    totalDays: days,
+    code: occupied ? lv?.allergy || "None recorded" : "",
+    vitals: lv?.vitals
+      ? {
+          bp: dashIfNull(lv.vitals.bp),
+          hr: dashIfNull(lv.vitals.hr),
+          rr: dashIfNull(lv.vitals.rr),
+          temp: dashIfNull(lv.vitals.temp),
+          spo2: dashIfNull(lv.vitals.spo2),
+          cvp: dashIfNull(lv.vitals.map),
+        }
+      : null,
+    vent: lv?.vent
+      ? {
+          mode: lv.vent.mode,
+          fio2: dashIfNull(lv.vent.fio2),
+          peep: dashIfNull(lv.vent.peep),
+          tv: dashIfNull(lv.vent.tv),
+          rr: dashIfNull(lv.vent.rr),
+          pip: dashIfNull(lv.vent.pip),
+        }
+      : null,
+    infusions: (lv?.drugs ?? []).map((d) => ({
+      drug: d.drug,
+      rate: d.dose || "—",
+      concentration: [d.route, d.freq].filter(Boolean).join(" · ") || "—",
+    })),
+    alerts: [
+      ...(bed.status === "Maintenance" ? ["Bed under maintenance"] : []),
+      ...(lv?.alerts ?? []),
+    ],
+    score: { sofa: 0, apache: 0, rass: lv?.rass?.score ?? 0 },
+    hrTrend: lv?.hrTrend ?? [],
+    bpTrend: lv?.bpTrend ?? [],
+    isManualCharting: true,
+  }
+}
+
+const BED_SYNC_INTERVAL_MS = 10_000
+const CHART_SYNC_INTERVAL_MS = 15_000
+
+/**
+ * `unit` comes from the Critical Care sub-nav: "All" or an ICU unit type.
+ * `onOpenBedManagement` opens Bed Management (on a given bed if provided),
+ * where a synced bed's admission, transfer and discharge are done.
+ */
+export default function ICU({
+  unit = "All",
+  onOpenBedManagement,
+}: {
+  unit?: string
+  onOpenBedManagement?: (bedId?: number) => void
+}) {
+  const branding = useBranding()
+
+  // ── Beds: Bed Management is the single source of who is in which bed ──
+  const [beds, setBeds] = useState<BedRecord[]>([])
+  const [bedsState, setBedsState] = useState<"loading" | "live" | "offline">("loading")
+  const [bedsSyncedAt, setBedsSyncedAt] = useState<number>(0)
+  const loadBeds = useCallback(() => {
+    return apiFetch<{ beds: BedRecord[] }>("/api/beds")
+      .then((res) => {
+        const all = Array.isArray(res?.beds) ? res.beds : []
+        setBeds(all.filter(isCriticalCareBed))
+        setBedsState("live")
+        setBedsSyncedAt(Date.now())
+      })
+      .catch(() => setBedsState((s) => (s === "loading" ? "offline" : s)))
+  }, [])
+
+  // ── Charts: today's flowsheet for every occupied bed ──
+  const today = new Date().toISOString().slice(0, 10)
+  const [chartRev, setChartRev] = useState(0)
+  const occupiedMrns = useMemo(
+    () =>
+      beds
+        .filter((b) => b.status === "Occupied" && b.patient_id)
+        .map((b) => String(b.patient_id)),
+    [beds],
+  )
+  const occupiedKey = occupiedMrns.join("|")
+  const syncCharts = useCallback(() => {
+    if (!occupiedKey) return Promise.resolve()
+    return Promise.all(
+      occupiedKey.split("|").map((mrn) => syncRecordFromServer(mrn, today).catch(() => null)),
+    ).then(() => setChartRev((n) => n + 1))
+  }, [occupiedKey, today])
+
+  // Realtime: poll, refresh on focus, and react at once to a chart saved in
+  // any tab (BroadcastChannel) or written by another tab (storage event).
+  useEffect(() => {
+    loadBeds()
+    const timer = window.setInterval(loadBeds, BED_SYNC_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadBeds()
     }
-  } catch {}
-  return ALL_BEDS_DATASET
-}
+    window.addEventListener("focus", loadBeds)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener("focus", loadBeds)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [loadBeds])
+  useEffect(() => {
+    syncCharts()
+    const timer = window.setInterval(syncCharts, CHART_SYNC_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [syncCharts])
+  useEffect(() => onFlowsheetSync(() => setChartRev((n) => n + 1)), [])
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key?.startsWith("icu.flowsheet.")) setChartRev((n) => n + 1)
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [])
 
-/** `unit` comes from the Critical Care sub-nav: "All" or an ICU unit type. */
-export default function ICU({ unit = "All" }: { unit?: string }) {
-  const [bedsDataset, setBedsDataset] = useState<IcuPatient[]>(() => getInitialIcuBeds())
+  // A ticking clock so "synced N s ago" and stay length stay current.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  const allBeds = useMemo(
+    () => beds.map((b) => bedToIcuPatient(b, deriveLiveState(b.patient_id ? loadRecord(String(b.patient_id), today) : null))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [beds, today, chartRev],
+  )
+
+  const openInBedManagement = (bed: IcuPatient) => {
+    if (bed.bedId != null) {
+      try {
+        sessionStorage.setItem("hospai_target_bed_id", String(bed.bedId))
+      } catch {}
+    }
+    onOpenBedManagement?.(bed.bedId)
+  }
+
+  // ── ICU hand-offs (recorded by the ICU discharge form) ──
   const [dischargedPatients, setDischargedPatients] = useState<IcuDischargeRecord[]>(() =>
     getDischargedIcuPatients(),
   )
+  useEffect(() => {
+    const refresh = () => setDischargedPatients(getDischargedIcuPatients())
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "hms_icu_reception_discharges_v1") refresh()
+    }
+    window.addEventListener("icu:patient_discharged_to_reception", refresh)
+    window.addEventListener("storage", onStorage)
+    return () => {
+      window.removeEventListener("icu:patient_discharged_to_reception", refresh)
+      window.removeEventListener("storage", onStorage)
+    }
+  }, [])
   const [showDischargeModal, setShowDischargeModal] = useState(false)
-  const [showAdmissionModal, setShowAdmissionModal] = useState(false)
-  const [selectedBedForAdmission, setSelectedBedForAdmission] = useState("")
   const [summarySlipRecord, setSummarySlipRecord] = useState<IcuDischargeRecord | null>(null)
 
-  const [selectedBedIndex, setSelectedBedIndex] = useState(0)
+  // Selected by bed label, not array index: the bed list refreshes live and
+  // would shift every index under the selection.
+  const [selectedBed, setSelectedBed] = useState<string>("")
   const selectedUnit = unit in UNIT_LABEL ? unit : "All"
   const [selectedStatus, setSelectedStatus] = useState<string>("All")
   const [selectedFlowsheetDate, setSelectedFlowsheetDate] = useState<string>("")
@@ -2086,44 +1367,8 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
   const [labTick, setLabTick] = useState(0)
   useEffect(() => LabOrderDatabase.subscribe(() => setLabTick((n) => n + 1)), [])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(ICU_BEDS_STORAGE_KEY, JSON.stringify(bedsDataset))
-    } catch {}
-  }, [bedsDataset])
-
-  const handleAdmitPatient = (newPatient: IcuPatient) => {
-    setBedsDataset((prev) => {
-      const exists = prev.some((b) => b.bed === newPatient.bed)
-      if (exists) {
-        return prev.map((b) => (b.bed === newPatient.bed ? newPatient : b))
-      }
-      return [newPatient, ...prev]
-    })
-    const idx = bedsDataset.findIndex((b) => b.bed === newPatient.bed)
-    // Newly admitted manual patients start completely clean with 0 fake records
-    if (newPatient.mrn) {
-      // Clear any auto-generated demo keys so newly admitted patient has a blank chart
-      try {
-        const prefix = `icu.flowsheet.${newPatient.mrn}.`
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const k = localStorage.key(i)
-          if (k?.startsWith(prefix)) localStorage.removeItem(k)
-        }
-      } catch {}
-    }
-    setNotification(
-      `✓ Patient ${newPatient.name} successfully admitted to ICU Bed ${newPatient.bed}!`,
-    )
-  }
-
-  const availableBeds = useMemo(
-    () => bedsDataset.filter((b) => !b.name).map((b) => b.bed),
-    [bedsDataset],
-  )
-
   const filteredBeds = useMemo(() => {
-    return bedsDataset.filter((b) => {
+    return allBeds.filter((b) => {
       if (selectedUnit !== "All" && b.unitType !== selectedUnit) return false
       const a = acuityOf(b)
       if (selectedStatus === "Occupied" && !b.name) return false
@@ -2133,65 +1378,42 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
       if (selectedStatus === "Stable" && a.label !== "Stable") return false
       return true
     })
-  }, [bedsDataset, selectedUnit, selectedStatus])
+  }, [allBeds, selectedUnit, selectedStatus])
 
-  const pt = bedsDataset[selectedBedIndex] || bedsDataset[0]
+  const unitBeds =
+    selectedUnit === "All"
+      ? allBeds
+      : allBeds.filter((b) => b.unitType === selectedUnit)
 
-  useEffect(() => {
-    if (pt && pt.name && pt.mrn && !pt.isManualCharting) {
-      ensureMultiDaySeedData(pt.mrn, pt.totalDays || 7)
-      if (pt.name) ensureMultiDaySeedData(pt.name, pt.totalDays || 7)
-    }
-  }, [pt?.mrn, pt?.name, pt?.totalDays, pt?.isManualCharting])
+  const pt: IcuPatient | undefined =
+    unitBeds.find((b) => b.bed === selectedBed) ??
+    unitBeds.find((b) => b.name) ??
+    unitBeds[0]
 
-  // Switching unit in the sub-nav moves the selection into that unit, so the
-  // workspace never shows a patient the bed list is not listing.
-  useEffect(() => {
-    if (selectedUnit === "All" || pt.unitType === selectedUnit) return
-    const inUnit = bedsDataset.filter((b) => b.unitType === selectedUnit)
-    const next = inUnit.find((b) => b.name) ?? inUnit[0]
-    if (!next) return
-    setSelectedFlowsheetDate("")
-    setSelectedBedIndex(bedsDataset.findIndex((b) => b.bed === next.bed))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUnit])
-  const today = new Date().toISOString().slice(0, 10)
-
-  // Seed multi-day data for active patient
-  useEffect(() => {
-    if (pt.mrn) {
-      ensureMultiDaySeedData(pt.mrn, pt.totalDays || 10)
-    }
-  }, [pt.mrn, pt.totalDays])
-
-  // Charting progress for today
-  const [chartTick, setChartTick] = useState(0)
+  // Charting progress and day index for the selected patient.
   const summary = useMemo(
-    () => flowsheetSummary(pt.mrn || "100301", today),
-    [pt.mrn, today, chartTick],
+    () => flowsheetSummary(pt?.mrn || "", today),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pt?.mrn, today, chartRev],
   )
-
-  // Day-wise history comes from the clinical record
   const [history, setHistory] = useState<FlowsheetDay[]>([])
-  const refreshHistory = useCallback(() => {
-    if (!pt.mrn) return
+  useEffect(() => {
+    if (!pt?.mrn) {
+      setHistory([])
+      return
+    }
+    let alive = true
     fetchDays(pt.mrn)
-      .then((d) => setHistory(d.slice(0, 6)))
-      .catch(() => setHistory([]))
-  }, [pt.mrn])
-  useEffect(refreshHistory, [refreshHistory, chartTick])
-  useEffect(
-    () =>
-      onFlowsheetSync(() => {
-        refreshHistory()
-        setChartTick((n) => n + 1)
-      }),
-    [refreshHistory],
-  )
+      .then((d) => alive && setHistory(d.slice(0, 6)))
+      .catch(() => alive && setHistory([]))
+    return () => {
+      alive = false
+    }
+  }, [pt?.mrn, chartRev])
 
   const pendingLabOrders = useMemo(
     () =>
-      pt.mrn
+      pt?.mrn
         ? LabOrderDatabase.getOrdersForPatient(pt.mrn).filter(
             (o) =>
               o.department === "ICU" &&
@@ -2200,21 +1422,69 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
           )
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pt.mrn, labTick],
+    [pt?.mrn, labTick],
   )
 
-  const handleAddDrip = (inf: {
-    drug: string
-    rate: string
-    concentration: string
-  }) => {
-    setBedsDataset((prev) =>
-      prev.map((b) =>
-        b.bed === pt.bed ? { ...b, infusions: [inf, ...b.infusions] } : b,
-      ),
-    )
+  // Results entered by the laboratory on any of this patient's orders,
+  // newest first. A multi-parameter test lists each parameter.
+  const labResults = useMemo(() => {
+    if (!pt?.mrn) return []
+    const rows: { key: string ;label: string ;value: string ;abnormal: boolean ;at: string ;ts: number }[] = []
+    for (const o of LabOrderDatabase.getOrdersForPatient(pt.mrn)) {
+      for (const t of o.tests) {
+        const when = t.verifiedAt || t.resultedAt || t.processingCompletedAt || o.updatedAt
+        const ts = when ? new Date(when).getTime() || 0 : 0
+        const at = when ? formatDateTimeIST(when) : ""
+        if (t.results && Object.keys(t.results).length) {
+          for (const [param, r] of Object.entries(t.results)) {
+            if (!r?.value) continue
+            rows.push({
+              key: `${o.id}-${t.id}-${param}`,
+              label: Object.keys(t.results).length > 1 ? `${t.name} · ${param}` : t.name,
+              value: [r.value, r.unit].filter(Boolean).join(" "),
+              abnormal: Boolean(r.flag),
+              at,
+              ts,
+            })
+          }
+        } else if (t.result) {
+          rows.push({
+            key: `${o.id}-${t.id}`,
+            label: t.name,
+            value: [t.result, t.resultUnit].filter(Boolean).join(" "),
+            abnormal: Boolean(t.flag),
+            at,
+            ts,
+          })
+        }
+      }
+    }
+    return rows.sort((a, b) => b.ts - a.ts).slice(0, 8)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pt?.mrn, labTick])
+
+  // Drips go on today's drug chart, so the nurse sees them in the flowsheet
+  // and the board reads them back from the same record.
+  const handleAddDrip = async (inf: { drug: string ;rate: string ;concentration: string }) => {
+    if (!pt?.mrn) return
     setShowDripModal(false)
-    setNotification(`✓ ${inf.drug} infusion started at ${inf.rate} for ${pt.name}.`)
+    const { timeStr } = getCurrentDateTimeFormatted()
+    const { saved } = await appendChartRows(pt.mrn, today, "drug_chart", [
+      {
+        drug: inf.drug,
+        dose: [inf.rate, inf.concentration !== "—" ? inf.concentration : ""].filter(Boolean).join(" · "),
+        route: "IV infusion",
+        freq: "Continuous",
+        times: `Started ${timeStr}`,
+        nurse_sign: "",
+      },
+    ])
+    setChartRev((n) => n + 1)
+    setNotification(
+      saved
+        ? `✓ ${inf.drug} at ${inf.rate} added to ${pt.name}'s drug chart.`
+        : `${inf.drug} saved on this device; it will reach the chart when the connection is back.`,
+    )
   }
 
   const handleLabOrdered = (order: LabOrder) => {
@@ -2224,119 +1494,101 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
     )
   }
 
-  const spo2 = pt.vitals ? num(pt.vitals.spo2) : 98
-  const hr = pt.vitals ? num(pt.vitals.hr) : 75
-  const temp = pt.vitals ? num(pt.vitals.temp) : 37.0
-  const sys = pt.vitals ? num(pt.vitals.bp.split("/")[0]) : 120
-
-  const handlePharmacyOrderSubmitted = (order: {
-    drug: string
-    dose: string
-    route: string
-    freq: string
-    urgency: string
-    notes: string
-  }) => {
-    const { dateStr, timeStr } = getCurrentDateTimeFormatted()
-    const key = `icu.flowsheet.${pt.mrn}.${dateStr}`
-    let rec: FlowsheetRecord
-    try {
-      const raw = localStorage.getItem(key)
-      if (raw) rec = JSON.parse(raw)
-      else rec = generateSeedRecord(pt.mrn, 10, dateStr, pt.totalDays || 10)
-    } catch {
-      rec = generateSeedRecord(pt.mrn, 10, dateStr, pt.totalDays || 10)
+  // Medication orders: one prescription into the pharmacy queue (status
+  // "Sent To Pharmacy", department ICU) and the same lines onto today's chart.
+  const handleMedicationOrder = async (order: IcuMedOrder) => {
+    if (!pt?.mrn || !pt.name) return
+    const stamp = new Date()
+    const prescription: AppPrescription = {
+      id: `RX-${stamp.getTime().toString(36).toUpperCase()}`,
+      patientId: pt.mrn,
+      patientName: pt.name,
+      uhid: pt.mrn,
+      age: pt.age ?? undefined,
+      gender: pt.sex === "M" ? "Male" : pt.sex === "F" ? "Female" : undefined,
+      visitId: pt.admissionId != null ? `IP-${pt.admissionId}` : undefined,
+      doctorId: pt.provider || "icu",
+      doctorName: pt.provider || "ICU physician",
+      department: `ICU · ${pt.bed}`,
+      diagnosis: pt.dx || undefined,
+      date: stamp.toISOString().split("T")[0],
+      arrivalTime: stamp.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }),
+      sourceType: order.source,
+      priority: order.urgency === "STAT" ? "Urgent" : "Normal",
+      status: "Sent To Pharmacy",
+      dispensingStatus: "Waiting",
+      imageUrl: order.imageUrl,
+      items: order.items.map((it, i) => ({
+        id: `${stamp.getTime().toString(36)}-${i}`,
+        medicineName: it.drug,
+        dosage: it.dose,
+        frequency: it.freq,
+        duration: "As charted",
+        route: it.route,
+        instructions: it.instructions,
+        quantity: 1,
+        substitutionAllowed: false,
+      })),
+      verificationNotes: `ICU inpatient, bed ${pt.bed} (${pt.ward ?? pt.unit}).${order.source === "OCR" ? ` Read from an uploaded sheet${order.engine ? ` by ${order.engine}` : ""} — verify against the image.` : ""}`,
+      createdAt: stamp.toISOString(),
     }
+    PharmacyDatabase.savePrescriptions([prescription, ...PharmacyDatabase.getPrescriptions()])
 
-    const drugTable = rec.tables.drug_chart ?? []
-    drugTable.unshift({
-      drug: `${order.drug} (${order.urgency})`,
-      dose: order.dose,
-      route: order.route,
-      freq: order.freq,
-      times: timeStr,
-      nurse_sign: "PharmD Sent",
-    })
-    rec.tables.drug_chart = drugTable
-    rec.updatedAt = new Date().toISOString()
-
-    localStorage.setItem(key, JSON.stringify(rec))
-    broadcastSave(pt.mrn, dateStr)
-
-    if (pt.infusions) {
-      pt.infusions.unshift({
-        drug: order.drug,
-        rate: order.dose,
-        concentration: `${order.route} ${order.freq}`,
-      })
-    }
-
-    setNotification(
-      `✓ Pharmacy Order #${Math.floor(1000 + Math.random() * 9000)} for ${order.drug} (${order.dose}) submitted to Pharmacy at ${timeStr}!`,
+    const { timeStr } = getCurrentDateTimeFormatted()
+    const { saved } = await appendChartRows(
+      pt.mrn,
+      today,
+      "drug_chart",
+      order.items.map((it) => ({
+        drug: order.urgency === "STAT" ? `${it.drug} (STAT)` : it.drug,
+        dose: it.dose,
+        route: it.route,
+        freq: it.freq,
+        times: `Ordered ${timeStr}`,
+        nurse_sign: "",
+      })),
     )
-    setChartTick((t) => t + 1)
+    setChartRev((n) => n + 1)
+    setNotification(
+      `✓ ${prescription.id}: ${order.items.length} medicine${order.items.length === 1 ? "" : "s"} sent to pharmacy${saved ? " and added to today's drug chart" : "; chart saved on this device until the connection is back"}.`,
+    )
   }
 
+  // The hand-off is recorded here; the bed is then released or transferred in
+  // Bed Management, which owns it.
   const handleConfirmDischarge = (record: IcuDischargeRecord) => {
-    // Clear patient from active ICU bed dataset
-    setBedsDataset((prev) =>
-      prev.map((b) =>
-        b.bed === pt.bed
-          ? {
-              ...b,
-              name: null,
-              mrn: "",
-              age: null,
-              sex: null,
-              dx: null,
-              provider: "",
-              nurse: "",
-              los: "",
-              totalDays: 0,
-              code: "",
-              vitals: null,
-              vent: null,
-              infusions: [],
-              alerts: [],
-              score: { sofa: 0, apache: 0, rass: 0 },
-              hrTrend: [],
-              bpTrend: [],
-            }
-          : b,
-      ),
-    )
-
     setDischargedPatients(getDischargedIcuPatients())
-    setNotification(
-      `✓ Patient ${record.patientName} discharged from ICU Bed ${record.bed} and transferred to Reception!`,
-    )
     setSummarySlipRecord(record)
+    setNotification(
+      `✓ Hand-off for ${record.patientName} recorded. Release or transfer bed ${record.bed} in Bed Management to complete the move.`,
+    )
   }
-
-  const unitBeds =
-    selectedUnit === "All"
-      ? bedsDataset
-      : bedsDataset.filter((b) => b.unitType === selectedUnit)
+  const startDischarge = () => {
+    if (pt?.name) setShowDischargeModal(true)
+  }
   const occupiedCount = unitBeds.filter((b) => b.name).length
+  const syncedAgo = bedsSyncedAt ? Math.max(0, Math.round((now - bedsSyncedAt) / 1000)) : null
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#F5F7FB]">
-      {/* Pharmacy Medication Order Modal */}
-      <PharmacyOrderModal
-        patient={pt}
-        isOpen={showPharmacyModal}
-        onClose={() => setShowPharmacyModal(false)}
-        onOrderSubmitted={handlePharmacyOrderSubmitted}
-      />
+      {/* Medication order modal */}
+      {pt?.name && (
+        <PharmacyOrderModal
+          patient={pt}
+          isOpen={showPharmacyModal}
+          onClose={() => setShowPharmacyModal(false)}
+          onSubmit={handleMedicationOrder}
+        />
+      )}
 
-      {showDripModal && pt.name && (
+      {showDripModal && pt?.name && (
         <AddDripModal
           patientName={pt.name}
           onClose={() => setShowDripModal(false)}
           onAdd={handleAddDrip}
         />
       )}
-      {showLabModal && pt.name && (
+      {showLabModal && pt?.name && (
         <LabOrderModal
           patient={pt}
           onClose={() => setShowLabModal(false)}
@@ -2358,9 +1610,10 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
         </div>
       )}
 
-      {/* ICU Discharge Modal */}
-      {pt && pt.name && (
+      {/* ICU discharge hand-off */}
+      {pt?.name && showDischargeModal && (
         <IcuDischargeModal
+          key={pt.bed}
           patient={pt}
           isOpen={showDischargeModal}
           onClose={() => setShowDischargeModal(false)}
@@ -2374,15 +1627,6 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
         onClose={() => setSummarySlipRecord(null)}
       />
 
-      {/* ICU Admission Modal */}
-      <IcuAdmissionModal
-        isOpen={showAdmissionModal}
-        onClose={() => setShowAdmissionModal(false)}
-        availableBeds={availableBeds}
-        initialBed={selectedBedForAdmission || pt.bed}
-        onAdmit={handleAdmitPatient}
-      />
-
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 bg-white border-b border-[#E2E8F0] px-6 py-3 flex flex-wrap items-center gap-4">
         <div>
@@ -2393,18 +1637,33 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
               · {UNIT_LABEL[selectedUnit]}
             </span>
           </h1>
-          <div className="flex items-center gap-3 mt-1 text-[11.5px]">
-            <span className="text-[#64748B]">General Hospital</span>
+          <div className="flex flex-wrap items-center gap-3 mt-1 text-[11.5px]">
+            <span className="text-[#64748B]">{branding.hospitalName}</span>
             <span className="flex items-center gap-1.5 text-[#334155]">
               <span className="w-1.5 h-1.5 bg-[#DC2626]" /> {occupiedCount}{" "}
               occupied
             </span>
             <span className="flex items-center gap-1.5 text-[#334155]">
               <span className="w-1.5 h-1.5 bg-[#16A34A]" />{" "}
-              {unitBeds.length - occupiedCount} available
+              {unitBeds.filter((b) => !b.name && b.bedStatus !== "Maintenance").length} available
             </span>
             <span className="text-[#94A3B8]">
               {unitBeds.length} total beds
+            </span>
+            <span
+              className="flex items-center gap-1.5"
+              style={{ color: bedsState === "offline" ? "#B45309" : "#15803D" }}
+              title="Beds from Bed Management; vitals and drugs from today's flowsheet"
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${bedsState === "live" ? "animate-pulse" : ""}`}
+                style={{ backgroundColor: bedsState === "offline" ? "#F59E0B" : "#16A34A" }}
+              />
+              {bedsState === "loading"
+                ? "Connecting…"
+                : bedsState === "offline"
+                  ? "Bed Management unreachable"
+                  : `Live · synced ${syncedAgo ?? 0}s ago`}
             </span>
           </div>
         </div>
@@ -2419,10 +1678,8 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
           <Btn
             variant={view === "flowsheet" ? "primary" : "outline"}
             size="sm"
-            onClick={() => {
-              if (view === "flowsheet") setChartTick((t) => t + 1)
-              setView(view === "flowsheet" ? "overview" : "flowsheet")
-            }}
+            disabled={!pt?.name}
+            onClick={() => setView(view === "flowsheet" ? "overview" : "flowsheet")}
           >
             {view === "flowsheet" ? "Back to Overview" : "Daily Flowsheet"}
           </Btn>
@@ -2434,13 +1691,13 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
             Reception Handoffs ({dischargedPatients.length})
           </Btn>
 
-          {pt && pt.name && (
+          {pt?.name && (
             <button
               type="button"
-              onClick={() => setShowDischargeModal(true)}
+              onClick={startDischarge}
               className="px-3.5 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer transition-all"
             >
-              <span>📋 Discharge to Reception</span>
+              <span>📋 Discharge / Step-down</span>
             </button>
           )}
 
@@ -2449,8 +1706,9 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
             size="sm"
             className="text-emerald-700 border-emerald-400 hover:bg-emerald-50 font-bold"
             onClick={() => {
-              setSelectedBedForAdmission(availableBeds[0] || pt.bed)
-              setShowAdmissionModal(true)
+              const empty = unitBeds.find((b) => !b.name && b.bedStatus !== "Maintenance")
+              if (empty) openInBedManagement(empty)
+              else onOpenBedManagement?.()
             }}
           >
             + Admit Patient
@@ -2459,6 +1717,7 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
           <Btn
             variant="primary"
             size="sm"
+            disabled={!pt?.name}
             onClick={() => setShowPharmacyModal(true)}
           >
             + New Order
@@ -2489,9 +1748,14 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
 
       {/* ── ICU bed census strip ─────────────────────────────────────────── */}
       <div className="flex-shrink-0 bg-white border-b border-[#E2E8F0] px-6 py-2.5 flex items-stretch gap-2 overflow-x-auto">
+        {filteredBeds.length === 0 && (
+          <div className="text-[11.5px] text-[#64748B] py-2">
+            No critical-care beds in {UNIT_LABEL[selectedUnit]}. Beds typed ICU
+            in Bed Management appear here as soon as they exist.
+          </div>
+        )}
         {filteredBeds.map((p) => {
-          const globalIdx = bedsDataset.findIndex((b) => b.bed === p.bed)
-          const selected = selectedBedIndex === globalIdx
+          const selected = pt?.bed === p.bed
           const a = acuityOf(p)
           const occupied = Boolean(p.name)
           const spo2 = p.vitals ? num(p.vitals.spo2) : null
@@ -2500,16 +1764,14 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
             <button
               key={p.bed}
               type="button"
-              disabled={!occupied}
               onClick={() => {
-                if (!occupied) return
-                if (globalIdx !== selectedBedIndex) setSelectedFlowsheetDate("")
-                setSelectedBedIndex(globalIdx)
+                if (!selected) setSelectedFlowsheetDate("")
+                setSelectedBed(p.bed)
               }}
               className={`relative flex-shrink-0 w-48 text-left border rounded-xl pl-3.5 pr-2.5 py-2.5 transition-all overflow-hidden ${
                 occupied
                   ? "hover:shadow-md cursor-pointer"
-                  : "border-dashed cursor-default opacity-60"
+                  : "border-dashed cursor-pointer opacity-70 hover:opacity-100"
               } ${selected ? "ring-2 ring-offset-0 shadow-sm" : ""}`}
               style={{
                 backgroundColor: selected
@@ -2551,6 +1813,9 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
                   <div className="text-[10.5px] text-[#64748B] truncate">
                     {p.dx}
                   </div>
+                  {!p.vitals && (
+                    <div className="mt-1 text-[10.5px] text-[#2563EB]">No vitals charted today</div>
+                  )}
                   {p.vitals && (
                     <div className="flex gap-2 mt-1 font-mono text-[10.5px]">
                       <span
@@ -2578,6 +1843,9 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
                       >
                         HR {p.vitals.hr}
                       </span>
+                      {p.live?.lastChartedHour && (
+                        <span className="text-[#94A3B8]">@{p.live.lastChartedHour}</span>
+                      )}
                     </div>
                   )}
                 </>
@@ -2585,10 +1853,10 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
                 <div className="flex items-center gap-1.5 mt-2">
                   <span
                     className="w-1.5 h-1.5"
-                    style={{ backgroundColor: "#16A34A" }}
+                    style={{ backgroundColor: p.bedStatus === "Maintenance" ? "#F59E0B" : "#16A34A" }}
                   />
                   <span className="text-[11px] font-medium text-[#64748B]">
-                    Available
+                    {p.bedStatus === "Maintenance" ? "Maintenance" : "Available"}
                   </span>
                 </div>
               )}
@@ -2597,16 +1865,33 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
         })}
       </div>
 
-      {view === "flowsheet" ? (
+      {!pt ? (
+        <div className="flex-1 flex items-center justify-center p-10 bg-slate-50/50">
+          <div className="text-center max-w-md bg-white border border-slate-200 p-8 shadow-xs rounded-xl">
+            <div className="text-[15px] font-bold text-[#0F172A]">
+              {bedsState === "loading"
+                ? "Loading critical-care beds…"
+                : bedsState === "offline"
+                  ? "Bed Management could not be reached"
+                  : `No beds in ${UNIT_LABEL[selectedUnit]} yet`}
+            </div>
+            <p className="text-[12px] text-[#64748B] mt-1 mb-5">
+              {bedsState === "offline"
+                ? "The board retries every few seconds."
+                : "Create beds of type ICU in Bed Management. Name the ward or room after the unit (e.g. SICU, Cardiac ICU) to place them on its page; anything else is listed under ICU Ward."}
+            </p>
+            <Btn variant="primary" size="sm" onClick={() => onOpenBedManagement?.()}>
+              Open Bed Management
+            </Btn>
+          </div>
+        </div>
+      ) : view === "flowsheet" && pt.name ? (
         <div className="flex-1 flex flex-col min-h-0">
           <div className="bg-[#0F172A] text-white px-6 py-2 flex items-center justify-between text-xs flex-shrink-0 border-b border-slate-800">
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setChartTick((t) => t + 1)
-                  setView("overview")
-                }}
+                onClick={() => setView("overview")}
                 className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors shadow-2xs"
                 title="Return to Critical Care Overview Board"
               >
@@ -2619,10 +1904,7 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
             </div>
             <button
               type="button"
-              onClick={() => {
-                setChartTick((t) => t + 1)
-                setView("overview")
-              }}
+              onClick={() => setView("overview")}
               className="text-slate-300 hover:text-white text-xs font-medium cursor-pointer flex items-center gap-1"
             >
               <span>✕</span>
@@ -2637,10 +1919,7 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
             initialDate={selectedFlowsheetDate || today}
             totalDays={pt.totalDays || 10}
             isManualCharting={pt.isManualCharting}
-            onClose={() => {
-              setChartTick((t) => t + 1)
-              setView("overview")
-            }}
+            onClose={() => setView("overview")}
           />
         </div>
       ) : view === "discharges" ? (
@@ -2742,25 +2021,17 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
       ) : !pt.name ? (
         <div className="flex-1 flex items-center justify-center p-10 bg-slate-50/50">
           <div className="text-center max-w-md bg-white border border-slate-200 p-8 shadow-xs rounded-xl">
-            <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
-              🛏️
-            </div>
             <div className="text-[15px] font-bold text-[#0F172A]">
-              Bed {pt.bed} ({pt.unit}) is Available
+              Bed {pt.bed} is {pt.bedStatus === "Maintenance" ? "under maintenance" : "available"}
             </div>
-            <p className="text-[12px] text-[#64748B] mt-1 mb-5">
-              This critical care bed is sanitized and prepared for patient admission or emergency transfer.
+            <div className="text-[11.5px] text-[#64748B] mt-0.5">{pt.unit}</div>
+            <p className="text-[12px] text-[#64748B] mt-2 mb-5">
+              Beds are assigned in Bed Management. The patient appears on this
+              board within seconds of being placed.
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedBedForAdmission(pt.bed)
-                setShowAdmissionModal(true)
-              }}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm flex items-center gap-1.5 mx-auto cursor-pointer transition-all"
-            >
-              <span>➕ Admit Patient to {pt.bed}</span>
-            </button>
+            <Btn variant="primary" size="sm" onClick={() => openInBedManagement(pt)}>
+              {pt.bedStatus === "Maintenance" ? `Open ${pt.bed} in Bed Management` : `Assign ${pt.bed} in Bed Management`}
+            </Btn>
           </div>
         </div>
       ) : (
@@ -2781,14 +2052,29 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setShowDischargeModal(true)}
+                    onClick={startDischarge}
                     className="ml-2 px-2.5 py-1 bg-red-700 hover:bg-red-800 text-white text-[11px] font-bold rounded shadow-2xs flex items-center gap-1 cursor-pointer"
                   >
-                    <span>📋 Discharge Patient → Reception</span>
+                    <span>📋 Discharge / Step-down</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openInBedManagement(pt)}
+                    className="px-2.5 py-1 border border-[#CBD5E1] hover:bg-slate-50 text-[#334155] text-[11px] font-semibold rounded cursor-pointer"
+                  >
+                    Transfer bed
                   </button>
                 </div>
                 <div className="text-[11.5px] text-[#64748B] mt-0.5">
-                  {pt.age}y {pt.sex === "M" ? "Male" : "Female"} · MRN {pt.mrn}
+                  {[
+                    pt.age != null ? `${pt.age}y` : null,
+                    pt.sex === "M" ? "Male" : pt.sex === "F" ? "Female" : null,
+                    `MRN ${pt.mrn || "—"}`,
+                    pt.unit,
+                    pt.admittedAt ? `in bed since ${formatDateTimeIST(pt.admittedAt)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </div>
                 <div className="text-[12.5px] font-semibold text-[#1E293B] mt-1">
                   {pt.dx}
@@ -2796,12 +2082,12 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
               </div>
               <div className="ml-auto grid grid-cols-3 sm:grid-cols-6 gap-x-5 gap-y-2">
                 {[
-                  { l: "LOS", v: pt.los },
-                  { l: "Code", v: pt.code },
-                  { l: "Provider", v: pt.provider },
-                  { l: "Nurse", v: pt.nurse },
-                  { l: "SOFA", v: `${pt.score.sofa}/24` },
-                  { l: "APACHE II", v: String(pt.score.apache) },
+                  { l: "Day in ICU", v: pt.los },
+                  { l: "Allergy", v: pt.code },
+                  { l: "Consultant", v: pt.provider || "Not charted" },
+                  { l: "Nurse (shift)", v: pt.nurse || "Not charted" },
+                  { l: "GCS", v: pt.live?.gcs ? `${pt.live.gcs.total}/15 @${pt.live.gcs.at}` : "Not charted" },
+                  { l: "RASS", v: pt.live?.rass ? `${pt.live.rass.score > 0 ? "+" : ""}${pt.live.rass.score} @${pt.live.rass.at}` : "Not charted" },
                 ].map((x) => (
                   <div key={x.l}>
                     <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#94A3B8]">
@@ -2815,44 +2101,56 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
               </div>
             </div>
 
-            {/* Vitals strip */}
+            {/* Vitals strip -- latest charted value of each, today */}
+            {!pt.vitals && (
+              <div className="px-4 py-3 text-[12px] text-[#2563EB] bg-[#EFF6FF]">
+                No vitals charted today. They appear here as soon as the nurse
+                enters them in the Daily Flowsheet.
+              </div>
+            )}
+            {pt.vitals && (
+              <div className="px-4 pt-2 text-[10.5px] text-[#64748B]">
+                Latest charted values{pt.live?.lastChartedHour ? `, last entry ${pt.live.lastChartedHour}` : ""}
+                {pt.live?.updatedAt ? ` · chart saved ${formatDateTimeIST(pt.live.updatedAt)}` : ""}
+              </div>
+            )}
             {pt.vitals && (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-[#EDF1F7]">
                 <Vital
                   label="Temp"
                   value={pt.vitals.temp.replace("°C", "")}
                   unit="°C"
-                  state={temp >= 38.5 ? "crit" : temp >= 37.8 ? "warn" : "ok"}
+                  state={vitalState(pt.vitals.temp, (v) => (v >= 38.5 ? "crit" : v >= 37.8 ? "warn" : "ok"))}
                 />
                 <Vital
                   label="Heart Rate"
                   value={pt.vitals.hr}
                   unit="bpm"
-                  state={hr > 110 ? "crit" : hr > 100 ? "warn" : "ok"}
+                  state={vitalState(pt.vitals.hr, (v) => (v > 120 || v < 50 ? "crit" : v > 100 ? "warn" : "ok"))}
                 />
                 <Vital
                   label="Blood Pressure"
                   value={pt.vitals.bp}
                   unit="mmHg"
-                  state={sys < 100 ? "crit" : sys < 110 ? "warn" : "ok"}
+                  state={vitalState(pt.vitals.bp.split("/")[0], (v) => (v < 90 ? "crit" : v < 100 ? "warn" : "ok"))}
                 />
                 <Vital
                   label="Resp Rate"
                   value={pt.vitals.rr}
                   unit="/min"
-                  state={num(pt.vitals.rr) > 22 ? "warn" : "ok"}
+                  state={vitalState(pt.vitals.rr, (v) => (v > 30 || v < 8 ? "crit" : v > 22 ? "warn" : "ok"))}
                 />
                 <Vital
                   label="SpO₂"
                   value={pt.vitals.spo2.replace("%", "")}
                   unit="%"
-                  state={spo2 < 92 ? "crit" : spo2 < 95 ? "warn" : "ok"}
+                  state={vitalState(pt.vitals.spo2, (v) => (v < 92 ? "crit" : v < 95 ? "warn" : "ok"))}
                 />
                 <Vital
-                  label="CVP"
+                  label="MAP"
                   value={pt.vitals.cvp}
                   unit="mmHg"
-                  state="ok"
+                  state={vitalState(pt.vitals.cvp, (v) => (v < 65 ? "crit" : v < 70 ? "warn" : "ok"))}
                 />
               </div>
             )}
@@ -2883,8 +2181,8 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
           <MultiDayFlowchartMatrix
             patientId={pt.mrn}
             patientName={pt.name || "Patient"}
-            totalDays={pt.totalDays || (pt.isManualCharting ? 1 : 10)}
-            isManualCharting={pt.isManualCharting}
+            totalDays={pt.totalDays || 1}
+            revision={chartRev}
             onSelectDate={(d) => {
               setSelectedFlowsheetDate(d)
               setView("flowsheet")
@@ -2998,80 +2296,9 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
               </div>
             </Panel>
 
-            {/* Trends */}
-            <Panel title="Heart Rate — Last 5h" accent="#DC2626">
-              <MiniTrend
-                data={
-                  pt.hrTrend && pt.hrTrend.length > 0
-                    ? pt.hrTrend
-                    : [{ t: "12", v: 75 }]
-                }
-                color="#DC2626"
-                unit="bpm"
-              />
-              <div className="flex justify-between mt-2 text-[11px] text-[#64748B] font-mono">
-                <span>
-                  Min{" "}
-                  {Math.min(
-                    ...(pt.hrTrend.length ? pt.hrTrend : [{ t: "12", v: 75 }]).map(
-                      (d) => d.v,
-                    ),
-                  )}
-                </span>
-                <span>
-                  Max{" "}
-                  {Math.max(
-                    ...(pt.hrTrend.length ? pt.hrTrend : [{ t: "12", v: 75 }]).map(
-                      (d) => d.v,
-                    ),
-                  )}
-                </span>
-                <span className="font-bold text-[#0F172A]">
-                  Now{" "}
-                  {pt.hrTrend.length > 0
-                    ? pt.hrTrend[pt.hrTrend.length - 1].v
-                    : 75}{" "}
-                  bpm
-                </span>
-              </div>
-            </Panel>
-
-            <Panel title="Systolic BP — Last 5h" accent="#7C3AED">
-              <MiniTrend
-                data={
-                  pt.bpTrend && pt.bpTrend.length > 0
-                    ? pt.bpTrend
-                    : [{ t: "12", v: 120 }]
-                }
-                color="#7C3AED"
-                unit="mmHg"
-              />
-              <div className="flex justify-between mt-2 text-[11px] text-[#64748B] font-mono">
-                <span>
-                  Min{" "}
-                  {Math.min(
-                    ...(pt.bpTrend.length ? pt.bpTrend : [{ t: "12", v: 120 }]).map(
-                      (d) => d.v,
-                    ),
-                  )}
-                </span>
-                <span>
-                  Max{" "}
-                  {Math.max(
-                    ...(pt.bpTrend.length ? pt.bpTrend : [{ t: "12", v: 120 }]).map(
-                      (d) => d.v,
-                    ),
-                  )}
-                </span>
-                <span className="font-bold text-[#0F172A]">
-                  Now{" "}
-                  {pt.bpTrend.length > 0
-                    ? pt.bpTrend[pt.bpTrend.length - 1].v
-                    : 120}{" "}
-                  mmHg
-                </span>
-              </div>
-            </Panel>
+            {/* Trends -- today's charted readings */}
+            <TrendPanel title="Heart Rate — today" color="#DC2626" unit="bpm" data={pt.hrTrend} />
+            <TrendPanel title="Systolic BP — today" color="#7C3AED" unit="mmHg" data={pt.bpTrend} />
 
             {/* Ventilation */}
             <Panel
@@ -3079,115 +2306,118 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
               accent="#0EA5E9"
               actions={
                 <span className="text-[10.5px] font-semibold text-[#0369A1] bg-[#E0F2FE] px-1.5 py-0.5">
-                  {pt.vent ? pt.vent.mode : "Room Air"}
+                  {pt.vent ? pt.vent.mode : "Not charted"}
                 </span>
               }
             >
-              <div className="grid grid-cols-3 gap-px bg-[#EDF1F7] border border-[#EDF1F7]">
-                {[
-                  { l: "FiO₂", v: pt.vent ? pt.vent.fio2 : "21%" },
-                  {
-                    l: "PEEP",
-                    v: pt.vent ? `${pt.vent.peep} cmH₂O` : "0 cmH₂O",
-                  },
-                  { l: "Tidal Vol", v: pt.vent ? pt.vent.tv : "—" },
-                  { l: "Set RR", v: pt.vent ? `${pt.vent.rr}/min` : "16/min" },
-                  { l: "PIP", v: pt.vent ? `${pt.vent.pip} cmH₂O` : "—" },
-                  { l: "Mode", v: pt.vent ? pt.vent.mode : "Room Air" },
-                ].map((x) => (
-                  <div key={x.l} className="bg-white px-2.5 py-2">
-                    <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#94A3B8]">
-                      {x.l}
+              {pt.vent ? (
+                <div className="grid grid-cols-3 gap-px bg-[#EDF1F7] border border-[#EDF1F7]">
+                  {[
+                    { l: "FiO₂", v: pt.vent.fio2 === "—" ? "—" : `${pt.vent.fio2.replace("%", "")}%` },
+                    { l: "PEEP", v: pt.vent.peep === "—" ? "—" : `${pt.vent.peep} cmH₂O` },
+                    { l: "Tidal Vol", v: pt.vent.tv === "—" ? "—" : `${pt.vent.tv} mL` },
+                    { l: "Set RR", v: pt.vent.rr === "—" ? "—" : `${pt.vent.rr}/min` },
+                    { l: "PIP", v: pt.vent.pip === "—" ? "—" : `${pt.vent.pip} cmH₂O` },
+                    { l: "Mode", v: pt.vent.mode },
+                  ].map((x) => (
+                    <div key={x.l} className="bg-white px-2.5 py-2">
+                      <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                        {x.l}
+                      </div>
+                      <div className="font-mono text-[12.5px] font-bold text-[#0F172A] mt-0.5">
+                        {x.v}
+                      </div>
                     </div>
-                    <div className="font-mono text-[12.5px] font-bold text-[#0F172A] mt-0.5">
-                      {x.v}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyNote>No ventilator settings charted today.</EmptyNote>
+              )}
             </Panel>
 
             {/* Sedation */}
             <Panel title="Sedation — RASS" accent="#7C3AED">
-              <div className="flex items-center gap-4">
-                <div
-                  className={`w-14 h-14 flex items-center justify-center font-mono text-[22px] font-extrabold ${
-                    pt.score.rass <= -3 || pt.score.rass >= 2
-                      ? "bg-[#FEF3C7] text-[#B45309]"
-                      : "bg-[#DCFCE7] text-[#15803D]"
-                  }`}
-                >
-                  {pt.score.rass}
-                </div>
-                <div className="text-[11.5px] text-[#475569] leading-relaxed">
-                  <div className="font-semibold text-[#1E293B]">
-                    {pt.score.rass === -1
-                      ? "Drowsy"
-                      : pt.score.rass === -2
-                        ? "Light sedation"
-                        : "Sedation level"}
+              {pt.live?.rass ? (
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`w-14 h-14 flex items-center justify-center font-mono text-[22px] font-extrabold ${
+                      pt.live.rass.score <= -3 || pt.live.rass.score >= 2
+                        ? "bg-[#FEF3C7] text-[#B45309]"
+                        : "bg-[#DCFCE7] text-[#15803D]"
+                    }`}
+                  >
+                    {pt.live.rass.score > 0 ? `+${pt.live.rass.score}` : pt.live.rass.score}
                   </div>
-                  <div>
-                    Target -1 to -2. Reassess two-hourly on the flow chart.
+                  <div className="text-[11.5px] text-[#475569] leading-relaxed">
+                    <div className="font-semibold text-[#1E293B]">{pt.live.rass.label}</div>
+                    <div>Charted at {pt.live.rass.at}. Target −2 to 0; reassess two-hourly.</div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <EmptyNote>No RASS charted today.</EmptyNote>
+              )}
             </Panel>
 
             {/* Intake / Output */}
-            <Panel title="Intake / Output — 24h" accent="#0891B2">
-              <div className="grid grid-cols-2 gap-4 text-[11.5px]">
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] mb-1.5">
-                    Intake
+            <Panel
+              title="Intake / Output — today"
+              accent="#0891B2"
+              actions={
+                pt.live?.io ? (
+                  <span className="text-[10px] text-[#64748B]">
+                    {pt.live.io.source === "summary" ? "24h balance" : "from hourly rows"}
+                  </span>
+                ) : undefined
+              }
+            >
+              {pt.live?.io ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4 text-[11.5px]">
+                    {(
+                      [
+                        ["Intake", pt.live.io.intake, pt.live.io.totalIn, "Total In"],
+                        ["Output", pt.live.io.output, pt.live.io.totalOut, "Total Out"],
+                      ] as const
+                    ).map(([title, lines, total, totalLabel]) => (
+                      <div key={title}>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] mb-1.5">
+                          {title}
+                        </div>
+                        {lines.length === 0 && <div className="text-[#94A3B8]">None charted</div>}
+                        {lines.map((l) => (
+                          <div key={l.label} className="flex justify-between py-0.5">
+                            <span className="text-[#64748B]">{l.label}</span>
+                            <span className="font-mono font-semibold text-[#1E293B]">
+                              {l.ml.toLocaleString("en-IN")} mL
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between pt-1.5 mt-1 border-t border-[#EDF1F7] font-bold">
+                          <span className="text-[#334155]">{totalLabel}</span>
+                          <span className="font-mono text-[#0F172A]">{total.toLocaleString("en-IN")} mL</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  {[
-                    ["IV Fluids", "2,840 mL"],
-                    ["Medications", "380 mL"],
-                    ["Blood Products", "2 units"],
-                  ].map(([l, v]) => (
-                    <div key={l} className="flex justify-between py-0.5">
-                      <span className="text-[#64748B]">{l}</span>
-                      <span className="font-mono font-semibold text-[#1E293B]">
-                        {v}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex justify-between pt-1.5 mt-1 border-t border-[#EDF1F7] font-bold">
-                    <span className="text-[#334155]">Total In</span>
-                    <span className="font-mono text-[#0F172A]">3,220 mL</span>
+                  <div
+                    className={`mt-3 px-3 py-2 border text-[12px] font-bold text-center ${
+                      Math.abs(pt.live.io.balance) >= 1000
+                        ? "bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]"
+                        : "bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]"
+                    }`}
+                  >
+                    Net Balance {pt.live.io.balance > 0 ? "+" : ""}
+                    {pt.live.io.balance.toLocaleString("en-IN")} mL
                   </div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] mb-1.5">
-                    Output
-                  </div>
-                  {[
-                    ["Urine", "880 mL"],
-                    ["NG Tube", "120 mL"],
-                    ["Drains", "—"],
-                  ].map(([l, v]) => (
-                    <div key={l} className="flex justify-between py-0.5">
-                      <span className="text-[#64748B]">{l}</span>
-                      <span className="font-mono font-semibold text-[#1E293B]">
-                        {v}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex justify-between pt-1.5 mt-1 border-t border-[#EDF1F7] font-bold">
-                    <span className="text-[#334155]">Total Out</span>
-                    <span className="font-mono text-[#0F172A]">1,000 mL</span>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] text-[12px] font-bold text-[#92400E] text-center">
-                Net Balance +2,220 mL
-              </div>
+                </>
+              ) : (
+                <EmptyNote>No intake or output charted today.</EmptyNote>
+              )}
             </Panel>
 
-            {/* Infusions */}
+            {/* Drugs on today's chart */}
             <Panel
-              title="Active Infusions"
+              title="Drug Chart — today"
               accent="#DB2777"
               actions={
                 <Btn
@@ -3199,31 +2429,35 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
                 </Btn>
               }
             >
-              <div className="space-y-2">
-                {pt.infusions.map((inf, i) => (
-                  <div
-                    key={i}
-                    className="border border-[#E2E8F0] px-3 py-2 flex items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[12px] font-bold text-[#0F172A] truncate">
-                        {inf.drug}
+              {pt.infusions.length === 0 ? (
+                <EmptyNote>Nothing on today&apos;s drug chart.</EmptyNote>
+              ) : (
+                <div className="space-y-2">
+                  {pt.infusions.map((inf, i) => (
+                    <div
+                      key={`${inf.drug}-${i}`}
+                      className="border border-[#E2E8F0] px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-bold text-[#0F172A] truncate">
+                          {inf.drug}
+                        </div>
+                        <div className="text-[10.5px] text-[#94A3B8] font-mono truncate">
+                          {inf.concentration}
+                        </div>
                       </div>
-                      <div className="text-[10.5px] text-[#94A3B8] font-mono truncate">
-                        {inf.concentration}
+                      <div className="font-mono text-[11.5px] font-semibold text-[#1B4FD8] whitespace-nowrap">
+                        {inf.rate}
                       </div>
                     </div>
-                    <div className="font-mono text-[11.5px] font-semibold text-[#1B4FD8] whitespace-nowrap">
-                      {inf.rate}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </Panel>
 
             {/* Labs */}
             <Panel
-              title="Critical Labs"
+              title="Labs"
               accent="#D97706"
               actions={
                 <Btn
@@ -3265,94 +2499,126 @@ export default function ICU({ unit = "All" }: { unit?: string }) {
                   ))}
                 </div>
               )}
-              <div className="divide-y divide-[#EDF1F7]">
-                {[
-                  ["Troponin I", "18.4 ng/mL", "10:02", true],
-                  ["Lactic Acid", "4.2 mmol/L", "09:45", true],
-                  ["WBC", "18.4 K/μL", "09:10", true],
-                  ["Creatinine", "2.1 mg/dL", "09:10", true],
-                  ["Hemoglobin", "8.2 g/dL", "09:10", false],
-                  ["pH (ABG)", "7.28", "08:55", true],
-                ].map(([l, v, t, abn]) => (
-                  <div
-                    key={String(l)}
-                    className="flex items-center justify-between py-1.5"
-                  >
-                    <span className="text-[11.5px] text-[#475569]">{l}</span>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`font-mono text-[11.5px] font-bold ${
-                          abn ? "text-[#DC2626]" : "text-[#1E293B]"
-                        }`}
-                      >
-                        {v}
-                      </span>
-                      <span className="font-mono text-[10px] text-[#94A3B8] w-9 text-right">
-                        {t}
-                      </span>
-                    </div>
+              {labResults.length > 0 && (
+                <>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                    Latest results
                   </div>
-                ))}
-              </div>
+                  <div className="divide-y divide-[#EDF1F7]">
+                    {labResults.map((r) => (
+                      <div key={r.key} className="flex items-center justify-between py-1.5 gap-2">
+                        <span className="text-[11.5px] text-[#475569] truncate">{r.label}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className={`font-mono text-[11.5px] font-bold ${
+                              r.abnormal ? "text-[#DC2626]" : "text-[#1E293B]"
+                            }`}
+                          >
+                            {r.value}
+                          </span>
+                          <span className="font-mono text-[10px] text-[#94A3B8] w-20 text-right">
+                            {r.at}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {pt.live?.chartLabs && (
+                <div className="mt-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                    Charted on flowsheet{pt.live.chartLabs.at ? ` · ${pt.live.chartLabs.at}` : ""}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4">
+                    {pt.live.chartLabs.values.map((v) => (
+                      <div key={v.label} className="flex justify-between py-0.5 text-[11.5px]">
+                        <span className="text-[#475569]">{v.label}</span>
+                        <span className="font-mono font-semibold text-[#1E293B]">{v.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pendingLabOrders.length === 0 && labResults.length === 0 && !pt.live?.chartLabs && (
+                <EmptyNote>No lab orders or results for this patient yet.</EmptyNote>
+              )}
             </Panel>
 
-            {/* Consults */}
-            <Panel title="Consults & Teams" accent="#059669">
-              <div className="space-y-2">
-                {[
-                  {
-                    team: "Cardiology",
-                    doc: "Dr. Patel",
-                    note: "Cath lab post-PCI monitoring",
-                    status: "Active",
-                  },
-                  {
-                    team: "Pulm/Critical Care",
-                    doc: "Dr. Shah",
-                    note: "Primary ICU team",
-                    status: "Active",
-                  },
-                  {
-                    team: "Nephrology",
-                    doc: "Dr. Wong",
-                    note: "AKI — creatinine rising",
-                    status: "Pending",
-                  },
-                  {
-                    team: "Pharmacy ICU",
-                    doc: "PharmD Lee",
-                    note: "Vasoactive titration",
-                    status: "Active",
-                  },
-                ].map((c) => (
-                  <div
-                    key={c.team}
-                    className="flex items-start justify-between gap-3 border-b border-[#EDF1F7] pb-2 last:border-0 last:pb-0"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[12px] font-semibold text-[#1E293B]">
-                        {c.team}
-                      </div>
-                      <div className="text-[10.5px] text-[#64748B] truncate">
-                        {c.doc} · {c.note}
-                      </div>
+            {/* Care team and today's plan, from the chart */}
+            <Panel title="Care Team & Today's Plan" accent="#059669">
+              {(pt.live?.careTeam.length ?? 0) === 0 && (pt.live?.plan.length ?? 0) === 0 ? (
+                <EmptyNote>
+                  Consultants, shift nurses and the day plan appear once they are
+                  entered on the flowsheet.
+                </EmptyNote>
+              ) : (
+                <div className="space-y-3">
+                  {(pt.live?.careTeam.length ?? 0) > 0 && (
+                    <div className="space-y-1">
+                      {pt.live!.careTeam.map((m) => (
+                        <div key={m.role} className="flex justify-between gap-3 text-[11.5px]">
+                          <span className="text-[#64748B]">{m.role}</span>
+                          <span className="font-semibold text-[#1E293B] truncate">{m.name}</span>
+                        </div>
+                      ))}
                     </div>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 whitespace-nowrap ${
-                        c.status === "Active"
-                          ? "bg-[#DCFCE7] text-[#15803D]"
-                          : "bg-[#FEF3C7] text-[#B45309]"
-                      }`}
-                    >
-                      {c.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  )}
+                  {(pt.live?.plan.length ?? 0) > 0 && (
+                    <div className="border-t border-[#EDF1F7] pt-2 space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8]">
+                        Day plan
+                      </div>
+                      {pt.live!.plan.map((p, i) => (
+                        <div key={i} className="text-[11.5px]">
+                          <span className="font-mono text-[#94A3B8] mr-1.5">{p.time || "—"}</span>
+                          <span className="text-[#1E293B]">{p.order}</span>
+                          {p.by && <span className="text-[#94A3B8]"> · {p.by}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </Panel>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+function EmptyNote({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11.5px] text-[#94A3B8] py-2">{children}</div>
+}
+
+function TrendPanel({
+  title,
+  color,
+  unit,
+  data,
+}: {
+  title: string
+  color: string
+  unit: string
+  data: { t: string ;v: number }[]
+}) {
+  return (
+    <Panel title={title} accent={color}>
+      {data.length === 0 ? (
+        <EmptyNote>No readings charted today.</EmptyNote>
+      ) : (
+        <>
+          <MiniTrend data={data} color={color} unit={unit} />
+          <div className="flex justify-between mt-2 text-[11px] text-[#64748B] font-mono">
+            <span>Min {Math.min(...data.map((d) => d.v))}</span>
+            <span>Max {Math.max(...data.map((d) => d.v))}</span>
+            <span className="font-bold text-[#0F172A]">
+              Latest {data[data.length - 1].v} {unit} @{data[data.length - 1].t}:00
+            </span>
+          </div>
+        </>
+      )}
+    </Panel>
   )
 }

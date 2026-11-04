@@ -212,15 +212,28 @@ export type PrescriptionStatus = "Draft" | "Sent To Pharmacy" | "Received" | "OC
  * prescription sat in the verification queue while the pharmacist's landing
  * screen told them there was nothing to do.
  */
-export const AWAITING_VERIFICATION_STATUSES: PrescriptionStatus[] = [
+export const AWAITING_VERIFICATION_STATUSES: string[] = [
   "Sent To Pharmacy",
   "Received",
   "OCR Processing",
   "Verification Pending",
+  "Pending",
+  "Waiting",
+  "New",
 ]
 
-export function isAwaitingVerification(status: PrescriptionStatus): boolean {
-  return AWAITING_VERIFICATION_STATUSES.includes(status)
+export function isAwaitingVerification(status?: string | null): boolean {
+  if (!status) return true
+  const s = status.toLowerCase().trim()
+  return (
+    s === "sent to pharmacy" ||
+    s === "received" ||
+    s === "ocr processing" ||
+    s === "verification pending" ||
+    s === "pending" ||
+    s === "waiting" ||
+    s === "new"
+  )
 }
 export type DispensingStatus = "Waiting" | "Preparing" | "Ready" | "Dispensed" | "Cancelled"
 export type PrescriptionPriority = "Normal" | "Urgent" | "Emergency"
@@ -514,8 +527,23 @@ const ADJUSTMENTS_KEY = "hospai_pharm_adjustments_v4"
 const CLARIFICATIONS_KEY = "hospai_pharm_clarifications_v4"
 const WRITE_OFFS_KEY = "hospai_pharm_write_offs_v4"
 
-// In-memory fallback map if browser localStorage quota is completely filled
-const memoryStorageFallback: Record<string, string> = {}
+// In-memory copy of the pharmacy stores, kept for values localStorage could not
+// take (quota full). It is a fallback, never the source of truth: reads go to
+// localStorage first. It used to be read first, so anything that wrote a store
+// without going through *this* module's safeStorageSetItem -- most often a
+// second copy of this module after a dev-server hot reload, which is what the
+// doctor portal's dispatch ends up holding -- left the pharmacy showing its old
+// copy until a page refresh (a prescription sent from the doctor screen did not
+// appear in Pharmacy until F5). The map also lives on `window`, so every copy
+// of this module in a tab shares it.
+type PharmacyMemoryStore = { mem: Record<string, string> ;unpersisted: Record<string, true> }
+const pharmacyMemory: PharmacyMemoryStore =
+  typeof window !== "undefined"
+    ? ((window as any).__hospaiPharmacyMemory ??= { mem: {}, unpersisted: {} })
+    : { mem: {}, unpersisted: {} }
+const memoryStorageFallback: Record<string, string> = pharmacyMemory.mem
+/** Keys whose latest value is only in memory: localStorage refused the write. */
+const unpersistedKeys: Record<string, true> = pharmacyMemory.unpersisted
 
 /**
  * Removes legacy storage keys, massive base64 images, and trims non-critical logs
@@ -630,16 +658,81 @@ export function cleanupStorageQuota(): void {
   }
 }
 
-// Cross-tab real-time memory synchronization
+// Cross-tab real-time memory synchronization & BroadcastChannel fanout
+const PHARMACY_CHANNEL_NAME = "hospai_pharmacy_v1"
+const pharmacyListeners = new Set<(key?: string) => void>()
+let pharmacyChannel: BroadcastChannel | null = null
+
+function ensurePharmacyChannel(): BroadcastChannel | null {
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined")
+    return null
+  if (!pharmacyChannel) {
+    try {
+      pharmacyChannel = new BroadcastChannel(PHARMACY_CHANNEL_NAME)
+      pharmacyChannel.onmessage = (event) => {
+        const key = event?.data?.key
+        if (key && typeof window !== "undefined") {
+          try {
+            const val = window.localStorage.getItem(key)
+            if (val !== null && val !== "" && val !== "undefined") {
+              memoryStorageFallback[key] = val
+            } else if (val === null) {
+              delete memoryStorageFallback[key]
+            }
+          } catch {}
+        }
+        pharmacyListeners.forEach((fn) => {
+          try { fn(key) } catch (e) { console.error("[PharmacyDb] Listener error:", e) }
+        })
+        try {
+          window.dispatchEvent(new CustomEvent("hospai_pharmacy_updated", { detail: event?.data }))
+        } catch {}
+      }
+    } catch {
+      pharmacyChannel = null
+    }
+  }
+  return pharmacyChannel
+}
+
+export function notifyPharmacySubscribers(key?: string, broadcast = true): void {
+  pharmacyListeners.forEach((fn) => {
+    try { fn(key) } catch (e) { console.error("[PharmacyDb] Listener error:", e) }
+  })
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent("hospai_pharmacy_updated", { detail: { key, timestamp: Date.now() } }))
+      window.dispatchEvent(new Event("storage"))
+    } catch {}
+  }
+  if (broadcast) {
+    try {
+      ensurePharmacyChannel()?.postMessage({ key, timestamp: Date.now() })
+    } catch {}
+  }
+}
+
+export function subscribePharmacy(listener: (key?: string) => void): () => void {
+  pharmacyListeners.add(listener)
+  ensurePharmacyChannel()
+  return () => {
+    pharmacyListeners.delete(listener)
+  }
+}
+
 if (typeof window !== "undefined") {
   try {
+    ensurePharmacyChannel()
     window.addEventListener("storage", (e) => {
-      if (e.key && memoryStorageFallback[e.key] !== undefined) {
+      if (e.key) {
         if (e.newValue !== null) {
           memoryStorageFallback[e.key] = e.newValue
         } else {
           delete memoryStorageFallback[e.key]
         }
+        pharmacyListeners.forEach((fn) => {
+          try { fn(e.key || undefined) } catch {}
+        })
       }
     })
   } catch {}
@@ -657,6 +750,8 @@ export function safeStorageSetItem(key: string, value: string): void {
   // 2. Direct write to primary persistent store (localStorage)
   try {
     window.localStorage.setItem(key, value)
+    delete unpersistedKeys[key]
+    notifyPharmacySubscribers(key)
     return
   } catch (err) {
     // Quota exceeded: If this is an ephemeral notification or audit log, don't stall the system
@@ -667,6 +762,8 @@ export function safeStorageSetItem(key: string, value: string): void {
       key === AUDIT_LOGS_KEY
     ) {
       // Ephemeral keys can stay safely in memory and sessionStorage
+      unpersistedKeys[key] = true
+      notifyPharmacySubscribers(key)
       return
     }
   }
@@ -675,6 +772,8 @@ export function safeStorageSetItem(key: string, value: string): void {
   try {
     cleanupStorageQuota()
     window.localStorage.setItem(key, value)
+    delete unpersistedKeys[key]
+    notifyPharmacySubscribers(key)
     return
   } catch (secondErr) {
     // Aggressive prune: purge audit logs and older bills/txs
@@ -682,9 +781,13 @@ export function safeStorageSetItem(key: string, value: string): void {
       window.localStorage.removeItem(AUDIT_LOGS_KEY)
       window.localStorage.removeItem(STOCK_TXS_KEY)
       window.localStorage.setItem(key, value)
+      delete unpersistedKeys[key]
+      notifyPharmacySubscribers(key)
       return
     } catch (thirdErr) {
+      unpersistedKeys[key] = true
       console.warn(`[PharmacyDb] Persisted "${key}" in memory & sessionStorage fallback.`)
+      notifyPharmacySubscribers(key)
     }
   }
 }
@@ -692,16 +795,14 @@ export function safeStorageSetItem(key: string, value: string): void {
 export function safeStorageGetItem(key: string): string | null {
   if (typeof window === "undefined") return null
 
-  // 1. In-memory cache first (0ms instantaneous lookup, no disk thrashing)
-  if (
-    memoryStorageFallback[key] !== undefined &&
-    memoryStorageFallback[key] !== null &&
-    memoryStorageFallback[key] !== "undefined"
-  ) {
+  // 1. A value localStorage refused (quota full) lives only in memory -- it is
+  //    the newest, so it wins until a later write persists.
+  if (unpersistedKeys[key] && memoryStorageFallback[key] !== undefined) {
     return memoryStorageFallback[key]
   }
 
-  // 2. Primary persistent store (localStorage)
+  // 2. localStorage is the source of truth, shared by every copy of this module
+  //    and every other tab, so a write from anywhere is seen on the next read.
   try {
     const val = window.localStorage.getItem(key)
     if (val !== null && val !== "" && val !== "undefined") {
@@ -719,7 +820,9 @@ export function safeStorageGetItem(key: string): string | null {
     }
   } catch {}
 
-  return null
+  // 4. Last resort: this tab's memory (storage unavailable entirely).
+  const mVal = memoryStorageFallback[key]
+  return mVal !== undefined && mVal !== null && mVal !== "undefined" ? mVal : null
 }
 
 /**
@@ -1284,6 +1387,8 @@ if (typeof window !== "undefined") {
 export const INITIAL_SEED_PRESCRIPTIONS: AppPrescription[] = SEED_PRESCRIPTIONS
 
 export class PharmacyDatabase {
+  static subscribe = subscribePharmacy
+  static notify = notifyPharmacySubscribers
   static purgeSampleData = purgeSampleData
   static clearAllPharmacyData = clearAllPharmacyData
   static seedHospitalTestData = seedPharmacyHospitalData
@@ -2147,8 +2252,7 @@ export class PharmacyDatabase {
   static savePrescriptions(rx: AppPrescription[]) {
     if (typeof window !== "undefined") {
       safeStorageSetItem(PRESCRIPTIONS_KEY, JSON.stringify(rx))
-      window.dispatchEvent(new Event("storage"))
-      window.dispatchEvent(new CustomEvent("hospai_pharmacy_updated"))
+      notifyPharmacySubscribers(PRESCRIPTIONS_KEY)
     }
   }
 

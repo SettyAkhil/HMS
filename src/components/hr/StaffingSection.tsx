@@ -47,7 +47,7 @@ function Coverage() {
         <Field label="Date">
           <input type="date" className={filterCls} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />
         </Field>
-        {live && <span className="text-xs text-slate-500 pb-2">Today uses the live bed census from the bed board</span>}
+        {live && <span className="text-xs text-gray-500 pb-2">Today uses the live bed census from the bed board</span>}
       </div>
       {cov.loading && !cov.data ? (
         <Loading />
@@ -74,7 +74,7 @@ function Coverage() {
                     <td className="px-4 py-2 tabular-nums">{r.required}</td>
                     <td className="px-4 py-2 tabular-nums">{r.assigned}</td>
                     <td className="px-4 py-2">{r.shortage ? <StatusBadge value="failed" label={`Short ${r.shortage}`} /> : <StatusBadge value="success" label="Covered" />}</td>
-                    <td className="px-4 py-2 text-xs text-slate-500 max-w-xs truncate" title={r.staff.map((s) => s.name).join(", ")}>
+                    <td className="px-4 py-2 text-xs text-gray-500 max-w-xs truncate" title={r.staff.map((s) => s.name).join(", ")}>
                       {r.staff.map((s) => s.name + (s.source !== "roster" ? ` (${s.source})` : "")).join(", ") || "—"}
                     </td>
                   </tr>
@@ -101,16 +101,16 @@ export function OnDutyList({ hmsModule, departmentId, compact }: { hmsModule?: s
   if (duty.error) return <ErrorState error={duty.error} onRetry={duty.reload} />
   if (!duty.data!.staff.length) return <Empty title="Nobody is rostered on duty right now" hint="Duty comes from published HR rosters." />
   return (
-    <ul className={`divide-y divide-slate-100 ${compact ? "text-xs" : "text-sm"}`}>
+    <ul className={`divide-y divide-[#DDE2EC] ${compact ? "text-xs" : "text-sm"}`}>
       {duty.data!.staff.map((s) => (
-        <li key={s.employee_id} className="py-1.5 flex items-center justify-between gap-2">
+        <li key={s.employee_id} className="py-2 flex items-center justify-between gap-2">
           <span>
-            <span className="text-slate-900">{s.name}</span>
-            <span className="text-slate-500"> · {s.designation ?? categoryLabel(s.category)}</span>
-            {!compact && <span className="text-slate-400"> · {s.department}</span>}
+            <span className="text-gray-900 font-medium">{s.name}</span>
+            <span className="text-gray-500"> · {s.designation ?? categoryLabel(s.category)}</span>
+            {!compact && <span className="text-gray-400"> · {s.department}</span>}
           </span>
           <span className="flex items-center gap-2 whitespace-nowrap">
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[11px] text-gray-400">
               {s.shift} until {fmtTime(s.shift_end)}
             </span>
             <StatusBadge value={s.checked_in ? "in" : "not_arrived"} />
@@ -258,7 +258,7 @@ function Allocations({ canEdit }: { canEdit: boolean }) {
   const list = useHr(() => hr.get<any[]>("/api/v1/workforce/allocations", { date_from: from, date_to: to }), [from])
   const [f, setF] = useState<any>(null)
   const [q, setQ] = useState("")
-  const people = useHr(() => (q.length >= 2 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, status: "active", page_size: 8 }) : Promise.resolve(null)), [q])
+  const people = useHr(() => (q.length >= 1 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, status: "active", page_size: 8 }) : Promise.resolve(null)), [q])
   const [busy, run] = useRun()
   const save = () =>
     run("save", () => hr.post("/api/v1/workforce/allocations", { ...f, shift_template_id: f.shift_template_id || null, reason: f.reason || null }), "Allocation recorded").then((r) => {
@@ -293,7 +293,7 @@ function Allocations({ canEdit }: { canEdit: boolean }) {
               <td className="px-4 py-2">{a.employee_name}</td>
               <td className="px-4 py-2">{a.department_name}</td>
               <td className="px-4 py-2 capitalize">{a.allocation_type}</td>
-              <td className="px-4 py-2 text-slate-600">{a.reason ?? "—"}</td>
+              <td className="px-4 py-2 text-gray-600">{a.reason ?? "—"}</td>
               <td className="px-4 py-2 text-right">
                 {canEdit && (
                   <Btn variant="ghost" onClick={() => run(a.id, () => hr.del(`/api/v1/workforce/allocations/${a.id}`), "Allocation cancelled").then(() => list.reload())}>
@@ -312,8 +312,8 @@ function Allocations({ canEdit }: { canEdit: boolean }) {
               <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search active staff" />
             </Field>
             {people.data?.items.map((p) => (
-              <button key={p.id} onClick={() => setF({ ...f, employee_id: p.id })} className={`block w-full text-left px-3 py-1.5 text-sm rounded-[6px] ${f.employee_id === p.id ? "bg-teal-50" : "hover:bg-slate-50"}`}>
-                {p.full_name} <span className="text-[11px] text-slate-400">{p.department} · {p.designation}</span>
+              <button key={p.id} onClick={() => setF({ ...f, employee_id: p.id })} className={`block w-full text-left px-3 py-1.5 text-sm rounded ${f.employee_id === p.id ? "bg-[#1B4FD8]/10 text-[#1B4FD8] font-medium" : "hover:bg-[#F8FAFC] text-gray-800"}`}>
+                {p.full_name} <span className="text-[11px] text-gray-400">{p.department} · {p.designation}</span>
               </button>
             ))}
             <Field label="Deploy to department" required>

@@ -46,18 +46,22 @@ export default function ErDispositionForm({
         }),
       })
 
-      // If admission is required, trigger a Bed Request automatically
+      // If admission is required, trigger a Bed Request if not already created
       if (["ward", "icu", "ot"].includes(outcome)) {
-        await apiFetch(`/api/er/visits/${visitId}/bed-request`, {
-          method: "POST",
-          body: JSON.stringify({
-            requested_level_of_care: outcome.toUpperCase(),
-            requested_specialty: specialty || undefined,
-          }),
-        })
+        try {
+          await apiFetch(`/api/er/visits/${visitId}/bed-requests`, {
+            method: "POST",
+            body: JSON.stringify({
+              requested_level_of_care: outcome.toUpperCase(),
+              requested_specialty: specialty || undefined,
+            }),
+          })
+        } catch {
+          // Bed request may already have been created atomically by disposition
+        }
         setNotice({
           type: "success",
-          message: `Disposition saved. Bed Request for ${outcome.toUpperCase()} sent to Reception.`,
+          message: `Disposition saved. Bed Request for ${outcome.toUpperCase()} registered.`,
         })
       } else {
         setNotice({

@@ -15,6 +15,7 @@ import { db, DBOPEncounter } from "./db"
 import { AuditDatabase } from "./auditDb"
 import { LabOrderDatabase, priceForTest } from "./labOrdersDb"
 import { BillingDatabase } from "./billingDb"
+import { OpReportsService } from "./opReportsDb"
 import {
   isRadiologyTest,
   getModalityForTest,
@@ -187,6 +188,7 @@ export function dispatchConsultation(
               },
             ]
 
+      const nowIso = new Date().toISOString()
       const prescription: AppPrescription = {
         id: `RX-${Date.now().toString(36).toUpperCase()}`,
         patientId: encounter.umr,
@@ -199,8 +201,8 @@ export function dispatchConsultation(
         doctorName: doctor.name,
         department: encounter.dept || doctor.specialty,
         diagnosis: record.diagnosis || encounter.diagnosis,
-        date: new Date().toISOString().split("T")[0],
-        arrivalTime: new Date().toLocaleTimeString("en-IN", {
+        date: nowIso.split("T")[0],
+        arrivalTime: encounter.registrationTime || new Date().toLocaleTimeString("en-IN", {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
@@ -222,7 +224,7 @@ export function dispatchConsultation(
           record.uploadedPrescription?.dataUrl || record.whiteboardImage,
         items,
         verificationNotes: buildPharmacySummary(record, encounter),
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
       }
 
       PharmacyDatabase.savePrescriptions([

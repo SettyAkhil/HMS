@@ -11,7 +11,7 @@ export default function ComplianceSection({ canManage }: { canManage: boolean })
   return (
     <div>
       <PageHeader title="Compliance" subtitle="Registrations, licences, mandatory training, documents and contracts — expiry and verification" actions={canManage && <Btn variant="primary" busy={busy === "scan"} onClick={scan}><ShieldCheck className="w-3.5 h-3.5" /> Run compliance scan</Btn>} />
-      <p className="text-[11px] text-slate-500 mb-3">A scan also runs automatically every night and raises one alert per item and expiry date.</p>
+      <p className="text-[11px] text-gray-500 mb-3">A scan also runs automatically every night and raises one alert per item and expiry date.</p>
       <Tabs value={tab} onChange={setTab} items={[{ id: "alerts", label: "Expiry alerts" }, { id: "records", label: "Compliance status" }]} />
       {tab === "alerts" && <Alerts key={version} canManage={canManage} />}
       {tab === "records" && <Records key={version} />}
@@ -63,7 +63,7 @@ function Records() {
                 <td className="px-4 py-2">{r.employee_name}</td>
                 <td className="px-4 py-2">{humanize(r.requirement.replace(":", ": "))}</td>
                 <td className="px-4 py-2"><StatusBadge value={r.status === "compliant" ? "success" : r.status === "expiring" ? "pending" : "failed"} label={humanize(r.status)} /></td>
-                <td className="px-4 py-2 text-slate-600">{r.detail ?? "—"}</td>
+                <td className="px-4 py-2 text-gray-600">{r.detail ?? "—"}</td>
                 <td className="px-4 py-2">{fmtDate(r.due_date)}</td>
               </tr>
             ))}

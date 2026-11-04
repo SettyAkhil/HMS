@@ -1,4 +1,4 @@
-import type { DBOPEncounter } from "./db"
+import { db, DBOPEncounter } from "./db"
 
 /**
  * When an OP encounter actually started, as milliseconds.
@@ -40,7 +40,11 @@ function datedMs(text: string): number | null {
   return null
 }
 
-export function encounterArrivalMs(e: Pick<DBOPEncounter, "timestamps" | "registrationTime">): number | null {
+export function encounterArrivalMs(e: Pick<DBOPEncounter, "timestamps" | "registrationTime"> & { date?: string; createdAt?: string; umr?: string }): number | null {
+  if (e.createdAt) {
+    const ms = Date.parse(e.createdAt)
+    if (Number.isFinite(ms)) return ms
+  }
   const candidates = [e.timestamps?.arrival, e.timestamps?.registration, e.registrationTime].filter(
     (c): c is string => typeof c === "string" && c.trim().length > 0,
   )
@@ -51,7 +55,18 @@ export function encounterArrivalMs(e: Pick<DBOPEncounter, "timestamps" | "regist
   for (const c of candidates) {
     const clock = clockOf(c)
     if (clock) {
-      const d = new Date()
+      let baseDate: Date | null = null
+      if (e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) {
+        baseDate = new Date(`${e.date}T00:00:00`)
+      } else if (e.umr) {
+        try {
+          const pt = db.getPatientByUmr(e.umr)
+          if (pt?.createdAt) {
+            baseDate = new Date(pt.createdAt)
+          }
+        } catch {}
+      }
+      const d = baseDate && !isNaN(baseDate.getTime()) ? baseDate : new Date()
       d.setHours(clock[0], clock[1], 0, 0)
       return d.getTime()
     }
@@ -60,7 +75,7 @@ export function encounterArrivalMs(e: Pick<DBOPEncounter, "timestamps" | "regist
 }
 
 /** ISO form of `encounterArrivalMs`, or "" when nothing parseable was recorded. */
-export function encounterArrivalIso(e: Pick<DBOPEncounter, "timestamps" | "registrationTime">): string {
+export function encounterArrivalIso(e: Pick<DBOPEncounter, "timestamps" | "registrationTime"> & { date?: string; createdAt?: string; umr?: string }): string {
   const ms = encounterArrivalMs(e)
   return ms === null ? "" : new Date(ms).toISOString()
 }

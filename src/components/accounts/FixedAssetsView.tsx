@@ -1,173 +1,433 @@
 import React, { useState } from "react"
-import { ShieldCheck, Plus, RefreshCw, Calculator, Layers } from "lucide-react"
-
-interface AssetRow {
-  id: string
-  code: string
-  name: string
-  category: string
-  cost: number
-  accumulated_dep: number
-  nbv: number
-  method: "Straight Line" | "Reducing Balance"
-  useful_life: number
-}
-
-const INITIAL_ASSETS: AssetRow[] = [
-  { id: "AST-01", code: "EQP-MRI-01", name: "Siemens 3T MRI Machine", category: "Medical Equipment", cost: 35000000, accumulated_dep: 7000000, nbv: 28000000, method: "Straight Line", useful_life: 10 },
-  { id: "AST-02", code: "EQP-CT-01", name: "GE 128-Slice CT Scanner", category: "Medical Equipment", cost: 18000000, accumulated_dep: 3600000, nbv: 14400000, method: "Straight Line", useful_life: 8 },
-  { id: "AST-03", code: "EQP-ICU-10", name: "Mindray ICU Ventilators (10 Units)", category: "Medical Equipment", cost: 4500000, accumulated_dep: 900000, nbv: 3600000, method: "Straight Line", useful_life: 5 },
-  { id: "AST-04", code: "FUR-BED-50", name: "Hillrom Motorized ICU Beds (20 Units)", category: "Furniture & Fixtures", cost: 2400000, accumulated_dep: 480000, nbv: 1920000, method: "Straight Line", useful_life: 7 },
-  { id: "AST-05", code: "IT-SRV-01", name: "Dell PowerEdge Server Rack Cluster", category: "IT Hardware", cost: 1200000, accumulated_dep: 400000, nbv: 800000, method: "Reducing Balance", useful_life: 3 },
-]
+import { Calculator, Plus, RefreshCw, Search, Download, Layers, CheckCircle2 } from "lucide-react"
+import { accountsApi } from "../../services/accounts/client"
+import type { FixedAsset, Period } from "../../types/accounts"
+import AccountPicker, { CostCentrePicker } from "./AccountPicker"
+import {
+  Button, Card, Empty, ErrorNote, Field, Input, Loaded, Modal, Money, Notice, PageHeader, Pill, Select, Table,
+  Td, Th, downloadCsv, formatDate, formatINR, formatINRShort, today, useAction, useApi
+} from "./ui"
 
 export default function FixedAssetsView() {
-  const [assets, setAssets] = useState<AssetRow[]>(INITIAL_ASSETS)
+  const assetsState = useApi(() => accountsApi.assets(), [])
+  const periodsState = useApi(() => accountsApi.periods(), [])
+  const [search, setSearch] = useState("")
+  const [addingAsset, setAddingAsset] = useState(false)
   const [showDepModal, setShowDepModal] = useState(false)
-  const [depMsg, setDepMsg] = useState<string | null>(null)
+  const [selectedPeriodId, setSelectedPeriodId] = useState<number | "">("")
+  const [notice, setNotice] = useState<string | null>(null)
+  const action = useAction()
+
+  const assets = assetsState.data?.assets || []
+  const filtered = assets.filter((a) => {
+    const q = search.trim().toLowerCase()
+    return (
+      !q ||
+      a.asset_code.toLowerCase().includes(q) ||
+      a.name.toLowerCase().includes(q) ||
+      a.asset_account_name.toLowerCase().includes(q) ||
+      (a.cost_centre && a.cost_centre.toLowerCase().includes(q))
+    )
+  })
+
+  const totalCost = assets.reduce((s, a) => s + (a.status === "active" ? a.cost : 0), 0)
+  const totalAcc = assets.reduce((s, a) => s + (a.status === "active" ? a.accumulated : 0), 0)
+  const totalNbv = assets.reduce((s, a) => s + (a.status === "active" ? a.net_book_value : 0), 0)
+
+  // Find all open periods for the depreciation run
+  const openPeriods: Period[] = (periodsState.data?.fiscal_years || []).flatMap((fy) =>
+    (fy.periods || []).filter((p) => p.status === "open")
+  )
 
   const handleRunDepreciation = () => {
-    let totalDep = 0
-    const updated = assets.map(ast => {
-      const annualDep = Math.round(ast.cost / ast.useful_life)
-      const monthlyDep = Math.round(annualDep / 12)
-      totalDep += monthlyDep
-      const newAcc = ast.accumulated_dep + monthlyDep
-      return {
-        ...ast,
-        accumulated_dep: newAcc,
-        nbv: ast.cost - newAcc,
+    const periodId = selectedPeriodId || openPeriods[0]?.id
+    if (!periodId) return
+    action.run(
+      () => accountsApi.runDepreciation(Number(periodId)),
+      (res) => {
+        setNotice(
+          `Depreciation posted as ${res.journal_no || "journal"}. ₹${(res.total || 0).toLocaleString("en-IN")} across ${res.assets || 0} active assets.`
+        )
+        setShowDepModal(false)
+        assetsState.reload()
       }
-    })
-
-    setAssets(updated)
-    setDepMsg(`Monthly depreciation of ₹${totalDep.toLocaleString("en-IN")} calculated and recorded.`)
-    setShowDepModal(false)
-    setTimeout(() => setDepMsg(null), 4000)
+    )
   }
 
-  const totalCost = assets.reduce((s, a) => s + a.cost, 0)
-  const totalAccDep = assets.reduce((s, a) => s + a.accumulated_dep, 0)
-  const totalNbv = assets.reduce((s, a) => s + a.nbv, 0)
+  const exportAssets = () => {
+    downloadCsv(
+      `fixed_assets_register_${today()}.csv`,
+      ["Code", "Asset Name", "GL Account", "Cost Centre", "Method", "Cost", "Accumulated", "NBV", "Status"],
+      assets.map((a) => [
+        a.asset_code,
+        a.name,
+        `${a.asset_account_code} ${a.asset_account_name}`,
+        a.cost_centre || "",
+        a.method,
+        a.cost,
+        a.accumulated,
+        a.net_book_value,
+        a.status,
+      ])
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-[#DDE2EC] shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
-            <Calculator className="text-[#1B4FD8]" size={20} />
-            Fixed Assets Register & Depreciation Schedule
-          </h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Asset Capitalization, Useful Life Tracking & Monthly Depreciation (SLM / WDV)
-          </p>
-        </div>
+      <PageHeader
+        title="Fixed Assets Register & Depreciation Schedule"
+        subtitle="Capitalized hospital equipment, buildings and fixtures tracked at cost, accumulated depreciation, and net carrying value."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={exportAssets}>
+              <Download size={13} /> CSV
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setSelectedPeriodId(openPeriods[0]?.id || "")
+                setShowDepModal(true)
+              }}
+            >
+              <RefreshCw size={13} /> Run Depreciation
+            </Button>
+            <Button variant="primary" onClick={() => setAddingAsset(true)}>
+              <Plus size={14} /> Capitalize Asset
+            </Button>
+          </div>
+        }
+      />
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowDepModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#1B4FD8] text-white rounded-lg text-xs font-semibold hover:bg-[#1640B2] transition shadow-xs cursor-pointer"
-          >
-            <RefreshCw size={14} />
-            Run Monthly Depreciation
-          </button>
-        </div>
-      </div>
-
-      {depMsg && (
-        <div className="p-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl text-xs font-semibold text-[#047857]">
-          {depMsg}
-        </div>
-      )}
+      <Notice message={notice} onClose={() => setNotice(null)} />
+      <ErrorNote message={action.error} />
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl shadow-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
           <span className="text-xs text-[#64748B] font-medium">Gross Fixed Asset Cost</span>
-          <div className="text-xl font-bold text-[#0F172A] mt-1">₹{totalCost.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#64748B] mt-1">Total Capitalized Assets</div>
+          <div className="text-xl font-bold text-[#0F172A] mt-1">{formatINRShort(totalCost)}</div>
+          <div className="text-[11px] text-[#64748B] mt-0.5">{assets.length} Registered Assets</div>
         </div>
 
-        <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl shadow-xs">
+        <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
           <span className="text-xs text-[#64748B] font-medium">Accumulated Depreciation</span>
-          <div className="text-xl font-bold text-[#BE123C] mt-1">₹{totalAccDep.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#64748B] mt-1">Contra-Asset Balance</div>
+          <div className="text-xl font-bold text-[#BE123C] mt-1">{formatINRShort(totalAcc)}</div>
+          <div className="text-[11px] text-[#64748B] mt-0.5">Contra-Asset Balance</div>
         </div>
 
-        <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl shadow-xs">
+        <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
           <span className="text-xs text-[#64748B] font-medium">Net Book Value (NBV)</span>
-          <div className="text-xl font-bold text-[#047857] mt-1">₹{totalNbv.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#64748B] mt-1">Carrying Value on Balance Sheet</div>
+          <div className="text-xl font-bold text-[#047857] mt-1">{formatINRShort(totalNbv)}</div>
+          <div className="text-[11px] text-[#047857] mt-0.5 font-semibold">Carrying Value on Balance Sheet</div>
+        </div>
+
+        <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
+          <span className="text-xs text-[#64748B] font-medium">Depreciation Methods</span>
+          <div className="text-xl font-bold text-[#1B4FD8] mt-1">SLM &amp; WDV</div>
+          <div className="text-[11px] text-[#64748B] mt-0.5">Automated Monthly Schedule</div>
         </div>
       </div>
 
-      {/* Asset Register Table */}
+      {/* Asset Table */}
       <div className="bg-white border border-[#DDE2EC] rounded-xl overflow-hidden shadow-xs">
-        <div className="p-4 border-b border-[#F1F5F9] bg-[#FAFAFA] flex items-center justify-between">
-          <h3 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2">
-            <Layers size={16} className="text-[#1B4FD8]" />
-            Capitalized Asset Inventory
-          </h3>
-          <span className="text-[11px] text-[#64748B]">{assets.length} Registered Assets</span>
+        <div className="p-4 border-b border-[#F1F5F9] bg-[#FAFAFA] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div className="relative w-72">
+            <Search className="absolute left-3 top-2.5 text-[#94A3B8]" size={14} />
+            <input
+              type="text"
+              placeholder="Search asset code, name or cost centre..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full text-xs pl-8 pr-3 py-1.5 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8] bg-white"
+            />
+          </div>
+          <span className="text-xs text-[#64748B]">Showing {filtered.length} assets</span>
         </div>
 
-        <table className="w-full text-left text-xs">
-          <thead className="bg-[#F8FAFC] text-[#475569] font-bold border-b border-[#E2E8F0]">
-            <tr>
-              <th className="py-2.5 px-4">Asset Code</th>
-              <th className="py-2.5 px-4">Description</th>
-              <th className="py-2.5 px-4">Category</th>
-              <th className="py-2.5 px-4">Method</th>
-              <th className="py-2.5 px-4 text-right">Cost (₹)</th>
-              <th className="py-2.5 px-4 text-right">Accumulated Dep. (₹)</th>
-              <th className="py-2.5 px-4 text-right">Net Book Value (₹)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#F1F5F9] text-[#334155]">
-            {assets.map(a => (
-              <tr key={a.id} className="hover:bg-[#F8FAFC]">
-                <td className="py-2.5 px-4 font-mono font-bold text-[#1B4FD8]">{a.code}</td>
-                <td className="py-2.5 px-4 font-semibold text-[#0F172A]">{a.name}</td>
-                <td className="py-2.5 px-4">{a.category}</td>
-                <td className="py-2.5 px-4 text-gray-600">{a.method} ({a.useful_life} yrs)</td>
-                <td className="py-2.5 px-4 text-right font-mono font-medium">₹{a.cost.toLocaleString("en-IN")}</td>
-                <td className="py-2.5 px-4 text-right font-mono font-medium text-[#BE123C]">₹{a.accumulated_dep.toLocaleString("en-IN")}</td>
-                <td className="py-2.5 px-4 text-right font-mono font-bold text-[#047857]">₹{a.nbv.toLocaleString("en-IN")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Loaded state={assetsState}>
+          {() =>
+            filtered.length === 0 ? (
+              <Empty>
+                {assets.length === 0
+                  ? "No fixed assets capitalized in the ledger yet. Click 'Capitalize Asset' to register equipment or property."
+                  : "No assets match search."}
+              </Empty>
+            ) : (
+              <Table dense>
+                <thead>
+                  <tr>
+                    <Th>Asset Code</Th>
+                    <Th>Description</Th>
+                    <Th>GL Account</Th>
+                    <Th>Cost Centre</Th>
+                    <Th>Method</Th>
+                    <Th right>Cost</Th>
+                    <Th right>Accumulated Dep.</Th>
+                    <Th right>Net Book Value</Th>
+                    <Th>Status</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((a) => (
+                    <tr key={a.id} className="hover:bg-[#F8FAFC]">
+                      <td className="py-2.5 px-3 font-mono font-bold text-xs text-[#1B4FD8]">
+                        {a.asset_code}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-semibold text-xs text-[#0F172A]">{a.name}</div>
+                        {a.location && <div className="text-[11px] text-[#64748B]">Loc: {a.location}</div>}
+                      </td>
+                      <td className="py-2.5 px-3 text-xs text-[#475569]">
+                        <span className="font-mono text-[11px] font-semibold text-[#334155]">{a.asset_account_code}</span>{" "}
+                        {a.asset_account_name}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-[#64748B]">
+                        {a.cost_centre || "General Hospital"}
+                      </td>
+                      <td className="py-2.5 px-3 text-xs text-[#475569]">
+                        {a.method} ({Math.round(a.useful_life_months / 12)} yrs)
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-xs font-medium">
+                        {formatINR(a.cost)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-xs font-medium text-[#BE123C]">
+                        {formatINR(a.accumulated)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-xs font-bold text-[#047857]">
+                        {formatINR(a.net_book_value)}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <Pill tone={a.status === "active" ? "green" : "neutral"}>
+                          {a.status}
+                        </Pill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )
+          }
+        </Loaded>
       </div>
 
-      {/* Depreciation Confirmation Modal */}
+      {/* Capitalize Asset Modal */}
+      {addingAsset && (
+        <CapitalizeAssetModal
+          onClose={() => setAddingAsset(false)}
+          onSaved={() => {
+            setAddingAsset(false)
+            setNotice("Fixed asset capitalized and registered.")
+            assetsState.reload()
+          }}
+        />
+      )}
+
+      {/* Run Depreciation Modal */}
       {showDepModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-[#CBD5E1]">
-            <h3 className="text-base font-bold text-[#0F172A] flex items-center gap-2">
-              <RefreshCw className="text-[#1B4FD8]" size={18} />
-              Execute Monthly Depreciation Run
-            </h3>
-            <p className="text-xs text-[#64748B] leading-relaxed">
-              This action will calculate straight-line and reducing-balance depreciation across all 5 registered assets and update the accumulated depreciation balances.
-            </p>
-            <div className="flex justify-end gap-3 pt-2 border-t border-[#E2E8F0]">
-              <button
-                onClick={() => setShowDepModal(false)}
-                className="px-4 py-2 border border-[#CBD5E1] rounded-lg text-xs font-semibold text-[#475569] hover:bg-gray-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
+        <Modal
+          title="Run Monthly Fixed Asset Depreciation"
+          onClose={() => setShowDepModal(false)}
+          footer={
+            <>
+              <Button onClick={() => setShowDepModal(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                busy={action.busy}
+                disabled={openPeriods.length === 0}
                 onClick={handleRunDepreciation}
-                className="px-4 py-2 bg-[#1B4FD8] text-white rounded-lg text-xs font-semibold hover:bg-[#1640B2] cursor-pointer"
               >
-                Confirm & Run
-              </button>
-            </div>
+                Execute Depreciation
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <ErrorNote message={action.error} />
+            <p className="text-xs text-[#334155]">
+              Select an open fiscal period to calculate monthly depreciation across all active capitalized assets.
+              The ledger will automatically generate a posted Depreciation Journal (<code>DEP-*</code>).
+            </p>
+            <Field label="Target Fiscal Period">
+              <Select
+                value={selectedPeriodId}
+                onChange={(e) => setSelectedPeriodId(Number(e.target.value))}
+              >
+                {openPeriods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({formatDate(p.start_date)} to {formatDate(p.end_date)})
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
+  )
+}
+
+function CapitalizeAssetModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState({
+    asset_code: "",
+    name: "",
+    account_id: "" as number | "",
+    cost: "",
+    salvage: "0",
+    useful_life_years: "5",
+    method: "SLM" as "SLM" | "WDV",
+    wdv_rate: "15",
+    in_service_date: today(),
+    cost_centre: "",
+    location: "",
+  })
+  const action = useAction()
+  const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
+
+  const save = () => {
+    if (!form.asset_code.trim() || !form.name.trim() || !form.account_id || !form.cost) return
+    action.run(
+      () =>
+        accountsApi.registerAsset({
+          asset_code: form.asset_code.trim().toUpperCase(),
+          name: form.name.trim(),
+          asset_account: { id: Number(form.account_id) },
+          cost: Number(form.cost),
+          salvage: Number(form.salvage || 0),
+          useful_life_months: Math.round(Number(form.useful_life_years) * 12),
+          method: form.method,
+          wdv_rate: form.method === "WDV" ? Number(form.wdv_rate) : undefined,
+          in_service_date: form.in_service_date,
+          cost_centre: form.cost_centre || undefined,
+          location: form.location.trim() || undefined,
+        }),
+      onSaved
+    )
+  }
+
+  const valid = form.asset_code.trim() && form.name.trim() && form.account_id !== "" && Number(form.cost) > 0
+
+  return (
+    <Modal
+      title="Capitalize & Register Fixed Asset"
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" busy={action.busy} disabled={!valid} onClick={save}>
+            Capitalize Asset
+          </Button>
+        </>
+      }
+    >
+      <ErrorNote message={action.error} />
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Asset Code (Unique)">
+            <Input
+              value={form.asset_code}
+              onChange={(e) => set({ asset_code: e.target.value })}
+              placeholder="e.g. EQP-MRI-01"
+            />
+          </Field>
+          <Field label="Asset Description">
+            <Input
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value })}
+              placeholder="e.g. Siemens 3T MRI Machine"
+            />
+          </Field>
+        </div>
+
+        <Field label="Fixed Asset GL Account">
+          <AccountPicker
+            value={form.account_id}
+            filter={(a) => a.category === "asset"}
+            onChange={(id) => set({ account_id: id })}
+            placeholder="Select Asset Account (e.g. 1510 Medical Equipment)"
+          />
+        </Field>
+
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Gross Cost (₹)">
+            <Input
+              type="number"
+              min="0"
+              value={form.cost}
+              onChange={(e) => set({ cost: e.target.value })}
+              placeholder="35000000"
+            />
+          </Field>
+          <Field label="Salvage Value (₹)">
+            <Input
+              type="number"
+              min="0"
+              value={form.salvage}
+              onChange={(e) => set({ salvage: e.target.value })}
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Useful Life (Years)">
+            <Input
+              type="number"
+              min="1"
+              value={form.useful_life_years}
+              onChange={(e) => set({ useful_life_years: e.target.value })}
+              placeholder="10"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Depreciation Method">
+            <Select
+              value={form.method}
+              onChange={(e) => set({ method: e.target.value as "SLM" | "WDV" })}
+            >
+              <option value="SLM">Straight Line Method (SLM)</option>
+              <option value="WDV">Written Down Value (WDV / Reducing Balance)</option>
+            </Select>
+          </Field>
+          {form.method === "WDV" ? (
+            <Field label="WDV Rate (%)">
+              <Input
+                type="number"
+                step="0.1"
+                value={form.wdv_rate}
+                onChange={(e) => set({ wdv_rate: e.target.value })}
+              />
+            </Field>
+          ) : (
+            <Field label="In-Service Date">
+              <Input
+                type="date"
+                value={form.in_service_date}
+                max={today()}
+                onChange={(e) => set({ in_service_date: e.target.value })}
+              />
+            </Field>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Cost Centre (Department)">
+            <CostCentrePicker value={form.cost_centre} onChange={(c) => set({ cost_centre: c })} />
+          </Field>
+          <Field label="Physical Location">
+            <Input
+              value={form.location}
+              onChange={(e) => set({ location: e.target.value })}
+              placeholder="e.g. Radiology Wing, Ground Floor"
+            />
+          </Field>
+        </div>
+      </div>
+    </Modal>
   )
 }

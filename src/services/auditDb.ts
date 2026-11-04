@@ -88,38 +88,55 @@ export function detectDevice(): string {
     return "Apple MacBook"
   if (/Lenovo|ThinkPad|IdeaPad|Yoga|Legion/i.test(fullContext)) _cachedDetectDevice = "Lenovo Laptop"
     return "Lenovo Laptop"
-  if (/HP|Hewlett-Packard|Pavilion|EliteBook|ProBook|Envy|Spectre|OMEN/i.test(fullContext)) _cachedDetectDevice = "HP Laptop"
+  if (/HP|Hewlett-Packard|Pavilion|EliteBook|ProBook|Envy|Spectre|OMEN/i.test(fullContext)) {
+    _cachedDetectDevice = "HP Laptop"
     return "HP Laptop"
-  if (/Dell|Inspiron|Latitude|XPS|Alienware|Vostro/i.test(fullContext)) _cachedDetectDevice = "Dell Laptop"
+  }
+  if (/Dell|Inspiron|Latitude|XPS|Alienware|Vostro/i.test(fullContext)) {
+    _cachedDetectDevice = "Dell Laptop"
     return "Dell Laptop"
-  if (/Asus|ROG|ZenBook|VivoBook/i.test(fullContext)) _cachedDetectDevice = "Asus Laptop"
+  }
+  if (/Asus|ROG|ZenBook|VivoBook/i.test(fullContext)) {
+    _cachedDetectDevice = "Asus Laptop"
     return "Asus Laptop"
-  if (/Acer|Predator|Aspire|Swift|Nitro/i.test(fullContext)) _cachedDetectDevice = "Acer Laptop"
+  }
+  if (/Acer|Predator|Aspire|Swift|Nitro/i.test(fullContext)) {
+    _cachedDetectDevice = "Acer Laptop"
     return "Acer Laptop"
-  if (/MSI/i.test(fullContext)) _cachedDetectDevice = "MSI Laptop"
+  }
+  if (/MSI/i.test(fullContext)) {
+    _cachedDetectDevice = "MSI Laptop"
     return "MSI Laptop"
-  if (/Surface/i.test(fullContext)) _cachedDetectDevice = "Microsoft Surface"
+  }
+  if (/Surface/i.test(fullContext)) {
+    _cachedDetectDevice = "Microsoft Surface"
     return "Microsoft Surface"
-  if (/Samsung/i.test(fullContext)) _cachedDetectDevice = "Samsung Galaxy Book"
+  }
+  if (/Samsung/i.test(fullContext)) {
+    _cachedDetectDevice = "Samsung Galaxy Book"
     return "Samsung Galaxy Book"
+  }
 
   if (/Windows|Win32|Win64/i.test(fullContext)) {
     _cachedDetectDevice = "Lenovo Laptop"
     return "Lenovo Laptop"
   }
 
-  if (/Linux/i.test(fullContext)) _cachedDetectDevice = "Linux Workstation"
+  if (/Linux/i.test(fullContext)) {
+    _cachedDetectDevice = "Linux Workstation"
     return "Linux Workstation"
-  if (/CrOS/i.test(fullContext)) _cachedDetectDevice = "Chromebook"
+  }
+  if (/CrOS/i.test(fullContext)) {
+    _cachedDetectDevice = "Chromebook"
     return "Chromebook"
+  }
 
   _cachedDetectDevice = "Lenovo Laptop"
-    return "Lenovo Laptop"
+  return "Lenovo Laptop"
 }
 
 export function formatTimeOnly(isoStr?: string): string {
-  if (!isoStr) _cachedDetectDevice = "—"
-    return "—"
+  if (!isoStr) return "—"
   if (isoStr === "Active" || isoStr === "Session Expired" || isoStr === "—") return isoStr
   try {
     const d = new Date(isoStr)
@@ -131,8 +148,7 @@ export function formatTimeOnly(isoStr?: string): string {
 }
 
 export function formatDuration(startDate: Date, endDate: Date): string {
-  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) _cachedDetectDevice = "—"
-    return "—"
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return "—"
   let diffMs = Math.max(0, endDate.getTime() - startDate.getTime())
   let totalSeconds = Math.floor(diffMs / 1000)
   let seconds = totalSeconds % 60

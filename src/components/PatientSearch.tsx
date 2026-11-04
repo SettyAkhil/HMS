@@ -408,7 +408,9 @@ export default function PatientSearch({
                                 opNumber: `OP-${p.umr}`,
                                 dept: "General OP",
                                 isNew: true,
-                                registrationTime: new Date().toLocaleTimeString(
+                                date: (p.createdAt || new Date().toISOString()).split("T")[0],
+                                createdAt: p.createdAt || new Date().toISOString(),
+                                registrationTime: new Date(p.createdAt || Date.now()).toLocaleTimeString(
                                   [],
                                   { hour: "2-digit", minute: "2-digit" },
                                 ),
@@ -422,6 +424,10 @@ export default function PatientSearch({
                                 status: "Registered",
                                 bookedAt:
                                   p.createdAt || new Date().toISOString(),
+                                timestamps: {
+                                  arrival: p.createdAt || new Date().toISOString(),
+                                  registration: p.createdAt || new Date().toISOString(),
+                                },
                               } as unknown as DBOPEncounter
                               setSelectedJourneyEncounter(syntheticEnc)
                             }}

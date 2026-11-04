@@ -93,6 +93,7 @@ import OrderDrawer from "./components/OrderDrawer"
 import CommandPalette from "./components/CommandPalette"
 
 import Registration from "./components/Registration"
+import JourneyScanHost from "./components/opcard/JourneyScan"
 import NurseStation from "./components/NurseStation"
 
 import OPWorkflow from "./components/OPWorkflow"
@@ -193,7 +194,7 @@ const insuranceModule = (m: string): string =>
         : m
 
 
-type Module = "dashboard" | "patients" | "appointments" | "emergency" | "emergency_ui" | "clinical" | "inpatient" | "nursing" | "laboratory" | "lab_dashboard" | "lab_orders_collection" | "lab_workbench" | "lab_review_reports" | "lab_admin_config" | "lab_orders" | "lab_sample_collection" | "lab_sample_reception" | "lab_worklists" | "lab_analyzers" | "lab_result_entry" | "lab_pathologist_review" | "lab_critical_alerts" | "lab_reports" | "lab_test_master" | "lab_quality_analytics" | "lab_settings" | "lab_processing" | "lab_critical" | "lab_catalog" | "lab_inventory" | "lab_analytics" | "lab_tat" | "radiology" | "radiology_overview" | "radiology_worklist" | "radiology_scheduling" | "radiology_operations" | "radiology_reporting" | "radiology_finalized" | "radiology_exceptions" | "radiology_analytics" | "radiology_admin" | "radiology_template_upload" | "radiology_templates" | "radiology_xray" | "radiology_ct" | "radiology_usg" | "radiology_mri" | "radiology_reports" | "pharmacy" | "pharmacy_dispensing" | "pharmacy_rx" | "pharmacy_ocr" | "pharmacy_returns" | "pharmacy_supplier_returns" | "pharmacy_medicine" | "pharmacy_category" | "pharmacy_suppliers" | "pharmacy_po" | "pharmacy_grn" | "pharmacy_ledger" | "pharmacy_transfers" | "pharmacy_expiry" | "pharmacy_write_off" | "pharmacy_analytics" | "pharmacy_notifications" | "pharmacy_users" | "pharmacy_audit" | "pharmacy_settings" | "surgery" | "billing" | "billing_op" | "billing_ip" | "billing_er" | "billing_unified" | "billing_revenue" | "icu" | "icu_micu" | "icu_sicu" | "icu_ccu" | "icu_nicu" | "icu_picu" | "discharge" | "triage" | "insurance" | "insurance_overview" | "insurance_desk" | "insurance_board" | "insurance_case" | "insurance_discharge" | "insurance_reports" | "insurance_preauth" | "insurance_eligibility" | "insurance_claims" | "insurance_queries" | "insurance_emails" | "insurance_settlement" | "insurance_reconciliation" | "insurance_masters" | "insurance_tpas" | "insurance_packages" | "insurance_pricing" | "insurance_docrules" | "insurance_patient_policies" | "analytics" | "reports" | "reports_overview" | "reports_patients" | "reports_op" | "reports_er" | "reports_inpatient" | "reports_appointments" | "reports_doctors" | "reports_pharmacy" | "reports_laboratory" | "reports_radiology" | "reports_beds" | "reports_admissions" | "reports_discharges" | "reports_staff" | "admin" | "chart" | "register" | "outpatient" | "queue" | "op_management" | "op_registration" | "op_workflow" | "op_nurse" | "opd_procedures" | "doctor_workflow" | "doctor_portal" | "scheduling" | "lab_billing" | "admissions" | "readmission" | "payments" | "revenue_reports" | "reports_pharmacy_damaged" | "reports_supplier_returns" | "hrms" | "my_hr" | "employees" | "hr_dashboard" | "hr_attendance" | "hr_staffing" | "hr_leave" | "hr_approvals" | "hr_payroll" | "hr_recruitment" | "hr_organization" | "hr_training" | "hr_performance" | "hr_compliance" | "hr_grievances" | "hr_reports" | "hr_announcements" | "patient_exp" | "patient_messages" | "intelligence" | "ocr" | "dpi_ocr" | "symptom_ai" | "clinical_rag" | "clinical_summaries" | "bulk_ai" | "nl_filtering" | "beds" | "accounts" | "accounts_dashboard" | "accounts_coa" | "accounts_gl" | "accounts_receipts" | "accounts_payments" | "accounts_ar" | "accounts_ap" | "accounts_cash_bank" | "accounts_pharmacy" | "accounts_insurance" | "accounts_tax" | "accounts_budget" | "accounts_assets" | "accounts_reports" | "accounts_period_close" | "accounts_audit" | "accounts_manager"
+type Module = "dashboard" | "patients" | "appointments" | "emergency" | "emergency_ui" | "clinical" | "inpatient" | "nursing" | "laboratory" | "lab_dashboard" | "lab_orders_collection" | "lab_workbench" | "lab_review_reports" | "lab_admin_config" | "lab_orders" | "lab_sample_collection" | "lab_sample_reception" | "lab_worklists" | "lab_analyzers" | "lab_result_entry" | "lab_pathologist_review" | "lab_critical_alerts" | "lab_reports" | "lab_test_master" | "lab_quality_analytics" | "lab_settings" | "lab_processing" | "lab_critical" | "lab_catalog" | "lab_inventory" | "lab_analytics" | "lab_tat" | "radiology" | "radiology_overview" | "radiology_worklist" | "radiology_scheduling" | "radiology_operations" | "radiology_reporting" | "radiology_finalized" | "radiology_exceptions" | "radiology_analytics" | "radiology_admin" | "radiology_template_upload" | "radiology_templates" | "radiology_xray" | "radiology_ct" | "radiology_usg" | "radiology_mri" | "radiology_reports" | "pharmacy" | "pharmacy_dispensing" | "pharmacy_rx" | "pharmacy_ocr" | "pharmacy_returns" | "pharmacy_supplier_returns" | "pharmacy_medicine" | "pharmacy_category" | "pharmacy_suppliers" | "pharmacy_po" | "pharmacy_grn" | "pharmacy_ledger" | "pharmacy_transfers" | "pharmacy_expiry" | "pharmacy_write_off" | "pharmacy_analytics" | "pharmacy_notifications" | "pharmacy_users" | "pharmacy_audit" | "pharmacy_settings" | "surgery" | "billing" | "billing_op" | "billing_ip" | "billing_er" | "billing_unified" | "billing_revenue" | "icu" | "icu_micu" | "icu_sicu" | "icu_ccu" | "icu_nicu" | "icu_picu" | "icu_ward" | "discharge" | "triage" | "insurance" | "insurance_overview" | "insurance_desk" | "insurance_board" | "insurance_case" | "insurance_discharge" | "insurance_reports" | "insurance_preauth" | "insurance_eligibility" | "insurance_claims" | "insurance_queries" | "insurance_emails" | "insurance_settlement" | "insurance_reconciliation" | "insurance_masters" | "insurance_tpas" | "insurance_packages" | "insurance_pricing" | "insurance_docrules" | "insurance_patient_policies" | "analytics" | "reports" | "reports_overview" | "reports_patients" | "reports_op" | "reports_er" | "reports_inpatient" | "reports_appointments" | "reports_doctors" | "reports_pharmacy" | "reports_laboratory" | "reports_radiology" | "reports_beds" | "reports_admissions" | "reports_discharges" | "reports_staff" | "admin" | "chart" | "register" | "outpatient" | "queue" | "op_management" | "op_registration" | "op_workflow" | "op_nurse" | "opd_procedures" | "doctor_workflow" | "doctor_portal" | "scheduling" | "lab_billing" | "admissions" | "readmission" | "payments" | "revenue_reports" | "reports_pharmacy_damaged" | "reports_supplier_returns" | "hrms" | "my_hr" | "employees" | "hr_dashboard" | "hr_attendance" | "hr_staffing" | "hr_leave" | "hr_approvals" | "hr_payroll" | "hr_recruitment" | "hr_organization" | "hr_training" | "hr_performance" | "hr_compliance" | "hr_grievances" | "hr_reports" | "hr_announcements" | "patient_exp" | "patient_messages" | "intelligence" | "ocr" | "dpi_ocr" | "symptom_ai" | "clinical_rag" | "clinical_summaries" | "bulk_ai" | "nl_filtering" | "beds" | "accounts" | "accounts_dashboard" | "accounts_coa" | "accounts_gl" | "accounts_receipts" | "accounts_payments" | "accounts_ar" | "accounts_ap" | "accounts_cash_bank" | "accounts_pharmacy" | "accounts_insurance" | "accounts_tax" | "accounts_budget" | "accounts_assets" | "accounts_reports" | "accounts_period_close" | "accounts_audit" | "accounts_manager"
 
 const HR_MODULE_SECTION_MAP: Record<string, HrSection> = {
   hrms: "dashboard",
@@ -312,6 +313,7 @@ const NAV: NavItem[] = [
       { key: "icu_ccu", label: "Cardiac ICU (CCU)" },
       { key: "icu_nicu", label: "Neuro ICU (NICU)" },
       { key: "icu_picu", label: "Pediatric ICU (PICU)" },
+      { key: "icu_ward", label: "ICU Ward" },
     ],
   },
 
@@ -349,75 +351,22 @@ const NAV: NavItem[] = [
     key: "pharmacy",
     label: "Pharmacy",
     Icon: Pill,
-    badge: 3,
 
     children: [
       { key: "pharmacy", label: "Dashboard" },
-      {
-        key: "pharmacy_dispensing",
-        label: "Dispensing & Billing",
-        group: "Sales & Dispensing",
-      },
-      {
-        key: "pharmacy_rx",
-        label: "Doctor Prescriptions",
-        group: "Sales & Dispensing",
-      },
-      {
-        key: "pharmacy_returns",
-        label: "Patient Returns & Refunds",
-        group: "Sales & Dispensing",
-      },
-      {
-        key: "pharmacy_medicine",
-        label: "Medicine Catalog & Batches",
-        group: "Medicine Master",
-      },
-      {
-        key: "pharmacy_suppliers",
-        label: "Suppliers Directory",
-        group: "Suppliers & Purchases",
-      },
-      {
-        key: "pharmacy_ocr",
-        label: "Inward Stock Entry (GRN)",
-        group: "Suppliers & Purchases",
-      },
-      {
-        key: "pharmacy_supplier_returns",
-        label: "Supplier Returns (Debit Notes)",
-        group: "Suppliers & Purchases",
-      },
-      {
-        key: "pharmacy_ledger",
-        label: "Stock Movement Ledger",
-        group: "Stock & Inventory",
-      },
-      {
-        key: "pharmacy_expiry",
-        label: "Expiry & Low Stock Alerts",
-        group: "Stock & Inventory",
-      },
-      {
-        key: "pharmacy_write_off",
-        label: "Medicine Disposal & Write-Off",
-        group: "Stock & Inventory",
-      },
-      {
-        key: "pharmacy_analytics",
-        label: "Pharmacy Analytics & Reports",
-        group: "Reports & Administration",
-      },
-      {
-        key: "pharmacy_notifications",
-        label: "Alerts & Notifications",
-        group: "Reports & Administration",
-      },
-      {
-        key: "pharmacy_audit",
-        label: "Pharmacy Audit Log",
-        group: "Reports & Administration",
-      },
+      { key: "pharmacy_dispensing", label: "Dispensing & Billing" },
+      { key: "pharmacy_rx", label: "Doctor Prescriptions" },
+      { key: "pharmacy_returns", label: "Patient Returns & Refunds" },
+      { key: "pharmacy_medicine", label: "Medicine Catalog & Batches" },
+      { key: "pharmacy_suppliers", label: "Suppliers Directory" },
+      { key: "pharmacy_ocr", label: "Inward Stock Entry (GRN)" },
+      { key: "pharmacy_supplier_returns", label: "Supplier Returns (Debit Notes)" },
+      { key: "pharmacy_ledger", label: "Stock Movement Ledger" },
+      { key: "pharmacy_expiry", label: "Expiry & Low Stock Alerts" },
+      { key: "pharmacy_write_off", label: "Medicine Disposal & Write-Off" },
+      { key: "pharmacy_analytics", label: "Pharmacy Analytics & Reports" },
+      { key: "pharmacy_notifications", label: "Alerts & Notifications" },
+      { key: "pharmacy_audit", label: "Pharmacy Audit Log" },
     ],
   },
 
@@ -1334,6 +1283,11 @@ export default function App() {
     [],
   )
 
+  useEffect(
+    () => PharmacyDatabase.subscribe(() => setBadgeTick((t) => t + 1)),
+    [],
+  )
+
   // Below lg (phones, portrait tablets) the sidebar is an off-canvas drawer:
   // a fixed 288px column would leave a phone ~90px for the page itself. On
   // small laptops (lg..xl) it starts as the icon rail so the page keeps most
@@ -1673,6 +1627,15 @@ export default function App() {
 
     setLoggedIn(true)
     setModule(defaultModule)
+
+    // Signed in from a scanned patient card: go straight to that patient.
+    try {
+      const pending = sessionStorage.getItem("hospai_pending_patient_page")
+      if (pending) {
+        sessionStorage.removeItem("hospai_pending_patient_page")
+        window.location.hash = `#/patient/${encodeURIComponent(pending)}`
+      }
+    } catch { }
   }
 
   const toggleFullscreen = () => {
@@ -1991,6 +1954,15 @@ export default function App() {
         <Login onLogin={handleLogin} />
       ) : (
         <>
+          {/* OP card scans (hardware scanner or "Open journey" on a card)
+              open the patient's OP or IP journey from any screen. */}
+          <JourneyScanHost
+            onNavigateToOPWorkflow={(encId, step) => {
+              setSelectedWorkflowEncounterId(encId)
+              setWorkflowInitialStep(step ?? 2)
+              setModule("op_workflow")
+            }}
+          />
           {/* ── Top Header ───────────────────────────────────────────────── */}
           <header className="bg-[#0C1524] border-b border-[#1E2D42] h-12 flex items-center gap-1.5 sm:gap-3 px-2 sm:px-3.5 flex-shrink-0 z-40 text-slate-200 shadow-sm">
             {/* Sidebar toggle */}
@@ -2480,6 +2452,13 @@ export default function App() {
                     }
                     return (
                       c.key === item.key ||
+                      (item.key === "pharmacy" &&
+                        (userPermissions.includes("pharmacy") ||
+                          userPermissions.includes("pharmacy_rx") ||
+                          userPermissions.includes("pharmacy_dispensing") ||
+                          userPermissions.includes("ROLE_DOCTOR") ||
+                          userPermissions.includes("ROLE_PHARMACIST") ||
+                          userPermissions.includes("ROLE_PHARMACY"))) ||
                       (item.key === "reports" &&
                         userPermissions.includes("reports")) ||
                       (item.key === "insurance" &&
@@ -2586,8 +2565,10 @@ export default function App() {
                             <span className="flex-1 truncate">
                               {item.label}
                             </span>
-                            {navBadge && !isActive && (
-                              <span className="badge bg-[#DC2626] text-white ml-1">
+                            {Boolean(navBadge) && (
+                              <span
+                                className={`badge ${isActive ? "bg-white/20 text-white" : "bg-[#DC2626] text-white"} ml-1`}
+                              >
                                 {navBadge}
                               </span>
                             )}
@@ -2608,25 +2589,36 @@ export default function App() {
                         filteredChildren.length > 0 &&
                         isExpanded && (
                           <div className="space-y-0.5 my-1 sidebar-fade-in">
-                            {/* Ungrouped children (a module's own Dashboard) sit directly under the parent. */}
+                            {/* Ungrouped children sit directly under the parent. */}
                             {filteredChildren
                               .filter((c) => !c.group)
-                              .map((child) => (
-                                <div
-                                  key={`${child.key}_${child.label}`}
-                                  className={`nav-item sub ${(module === child.key || (child.key === "laboratory" && module === "lab_catalog")) && isActive
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                  onClick={() => {
-                                    setInsuranceCaseId(undefined)
-                                    setModule(child.key)
-                                    closeMobileNav()
-                                  }}
-                                >
-                                  {child.label}
-                                </div>
-                              ))}
+                              .map((child) => {
+                                const isChildActive =
+                                  (module === child.key || (child.key === "laboratory" && module === "lab_catalog")) &&
+                                  isActive
+                                const childBadge = subBadges[child.key] || 0
+
+                                return (
+                                  <div
+                                    key={`${child.key}_${child.label}`}
+                                    className={`nav-item sub justify-between ${isChildActive ? "active" : ""}`}
+                                    onClick={() => {
+                                      setInsuranceCaseId(undefined)
+                                      setModule(child.key)
+                                      closeMobileNav()
+                                    }}
+                                  >
+                                    <span className="flex-1 truncate">{child.label}</span>
+                                    {childBadge > 0 && (
+                                      <span
+                                        className={`badge ${isChildActive ? "bg-white/25 text-white" : "bg-[#334155] text-[#CBD5E1]"}`}
+                                      >
+                                        {childBadge}
+                                      </span>
+                                    )}
+                                  </div>
+                                )
+                              })}
 
                             {/* Grouped children are laid out under a plain section
                               caption rather than a second accordion: the group was
@@ -2931,7 +2923,14 @@ export default function App() {
                 />
               )}
               {module === "emergency_ui" && (
-                <EmergencyUI onRegister={() => setModule("emergency")} />
+                <EmergencyUI
+                  onRegister={() => setModule("emergency")}
+                  onOpenTriage={(visitId) => {
+                    setSelectedTriageVisitId(visitId)
+                    setModule("triage")
+                  }}
+                  onOpenTrackBoard={() => setModule("emergency")}
+                />
               )}
               {module === "inpatient" && (
                 <Inpatient
@@ -2986,6 +2985,7 @@ export default function App() {
               {module === "billing" && (
                 <BillingDashboard onNavigate={(m) => setModule(m as Module)} />
               )}
+              {module === "payments" && <PaymentCollection />}
               {(module === "accounts" || module.startsWith("accounts_")) && (
                 <AccountsModule
                   initialTab={
@@ -3100,6 +3100,7 @@ export default function App() {
                       ? "All"
                       : module.slice("icu_".length).toUpperCase()
                   }
+                  onOpenBedManagement={() => setModule("beds")}
                 />
               )}
               {module === "analytics" && <Analytics />}

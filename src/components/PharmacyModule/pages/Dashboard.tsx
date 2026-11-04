@@ -1,5 +1,5 @@
 import { usePharmacyData } from "../data/usePharmacyData"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   AreaChart,
   Area,
@@ -26,7 +26,7 @@ import {
   ArrowRight,
   Trash2,
 } from "lucide-react"
-import { PharmacyDatabase } from "../../../services/pharmacyDb"
+import { PharmacyDatabase, isAwaitingVerification } from "../../../services/pharmacyDb"
 import { toast } from "react-hot-toast"
 
 import StatusBadge from "../components/StatusBadge"
@@ -144,9 +144,51 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const selectedDateStats = chartData[chartData.length - 1]
   const selectedDateNet = selectedDateStats?.revenue || 0
 
-  const selectedDatePrescriptions = prescriptions.filter((p) =>
-    (p.date || "").startsWith(selectedDate),
+  const selectedDatePrescriptions = prescriptions.filter(
+    (p) =>
+      (p.date || "").startsWith(selectedDate) ||
+      (p.createdAt || "").startsWith(selectedDate),
   )
+
+  const pendingPrescriptions = prescriptions.filter((p) =>
+    isAwaitingVerification((p as any).status) ||
+    p.status === "pending" ||
+    (p as any).status === "Sent To Pharmacy",
+  )
+
+  const queuePrescriptions = useMemo(() => {
+    const list: typeof prescriptions = []
+    const seen = new Set<string>()
+
+    // Pending prescriptions first (newest pending first)
+    pendingPrescriptions.forEach((p) => {
+      if (!seen.has(p.id)) {
+        seen.add(p.id)
+        list.push(p)
+      }
+    })
+
+    // Today's / selected date prescriptions
+    selectedDatePrescriptions.forEach((p) => {
+      if (!seen.has(p.id)) {
+        seen.add(p.id)
+        list.push(p)
+      }
+    })
+
+    // Fallback if none in current filter
+    if (list.length === 0) {
+      prescriptions.slice(0, 5).forEach((p) => {
+        if (!seen.has(p.id)) {
+          seen.add(p.id)
+          list.push(p)
+        }
+      })
+    }
+
+    return list.slice(0, 5)
+  }, [prescriptions, pendingPrescriptions, selectedDatePrescriptions])
+
   const isToday = selectedDate === new Date().toISOString().split("T")[0]
 
   const kpis = [
@@ -167,11 +209,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       page: "dispensing",
     },
     {
-      title: isToday ? "Prescriptions Today" : "Selected Date Prescriptions",
-      value: selectedDatePrescriptions.length.toString(),
-      change: "Active",
+      title: "Prescription Queue",
+      value: pendingPrescriptions.length.toString(),
+      change: `${pendingPrescriptions.length} Pending`,
       up: true,
-      sub: "For selected date",
+      sub: `${selectedDatePrescriptions.length} issued today · ${pendingPrescriptions.length} in queue`,
       icon: ClipboardList,
       color: "#10B981",
       borderColor: "#10B981",
@@ -612,20 +654,24 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#D1FAE5]">
-              {selectedDatePrescriptions.length === 0 ? (
+              {queuePrescriptions.length === 0 ? (
                 <tr>
                   <td
                     colSpan={7}
                     className="text-center py-6 text-[#64748B] text-[13px]"
                   >
-                    No prescriptions for this date.
+                    No incoming prescriptions in queue.
                   </td>
                 </tr>
               ) : (
-                selectedDatePrescriptions.slice(0, 5).map((rx) => (
+                queuePrescriptions.map((rx) => (
                   <tr
-                    className="hover:bg-[#F0FDFA] transition-colors"
+                    className="hover:bg-[#F0FDFA] transition-colors cursor-pointer"
                     key={rx.id}
+                    onClick={() => {
+                      localStorage.setItem("_v2_pharmacy_dispense_rx", rx.id)
+                      onNavigate("dispensing")
+                    }}
                   >
                     <td className="font-mono text-[12px] text-[#0F766E] font-medium py-3 px-4">
                       {rx.id}
@@ -648,15 +694,28 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                       <StatusBadge status={rx.status} size="sm" />
                     </td>
                     <td className="text-[12px] text-[#94A3B8] py-3 px-4">
-                      {rx.time}
+                      {rx.time || rx.arrivalTime || "Just now"}
                     </td>
-                    <td className="py-3 px-4">
-                      <button
-                        onClick={() => onNavigate("prescriptions")}
-                        className="text-[12px] font-medium px-2.5 py-1 rounded border border-[#E2E8F0] text-[#334155] hover:bg-[#F0F2F5] transition-colors"
-                      >
-                        View
-                      </button>
+                    <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            localStorage.setItem("_v2_pharmacy_dispense_rx", rx.id)
+                            onNavigate("dispensing")
+                          }}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded bg-[#0F766E] text-white hover:bg-[#0D655E] transition-colors shadow-2xs"
+                        >
+                          Dispense
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onNavigate("prescriptions")}
+                          className="text-[11px] font-medium px-2 py-1 rounded border border-[#E2E8F0] text-[#334155] hover:bg-[#F0F2F5] transition-colors"
+                        >
+                          View
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

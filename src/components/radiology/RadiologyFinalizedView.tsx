@@ -276,7 +276,8 @@ export default function RadiologyFinalizedView() {
                   const finalizedDate =
                     study.finalizedAt ||
                     study.signedAt ||
-                    study.updatedAt
+                    (study as any).updatedAt ||
+                    (study as any).date
 
                   return (
                     <tr key={study.id} className="hover:bg-slate-50 transition-colors">

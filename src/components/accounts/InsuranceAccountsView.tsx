@@ -1,164 +1,436 @@
-import React, { useState } from "react"
-import { ShieldCheck, Search, DollarSign, Building2, CheckCircle2 } from "lucide-react"
-
-interface InsuranceClaimRow {
-  id: string
-  claim_no: string
-  patient_name: string
-  insurer_name: string
-  claimed_amount: number
-  approved_amount: number
-  deducted_amount: number
-  settled_amount: number
-  status: "Pre-Auth Approved" | "Claim Submitted" | "Settled" | "Disputed"
-  submission_date: string
-}
-
-const INITIAL_INSURANCE_CLAIMS: InsuranceClaimRow[] = [
-  { id: "CLM-01", claim_no: "CLM-2026-8812", patient_name: "Anita Sharma", insurer_name: "Star Health Insurance", claimed_amount: 185000, approved_amount: 170000, deducted_amount: 15000, settled_amount: 170000, status: "Settled", submission_date: "2026-04-02" },
-  { id: "CLM-02", claim_no: "CLM-2026-8815", patient_name: "Rahul Verma", insurer_name: "HDFC ERGO Health", claimed_amount: 240000, approved_amount: 225000, deducted_amount: 15000, settled_amount: 0, status: "Pre-Auth Approved", submission_date: "2026-04-05" },
-  { id: "CLM-03", claim_no: "CLM-2026-8819", patient_name: "Priya Nair", insurer_name: "ICICI Lombard TPA", claimed_amount: 120000, approved_amount: 110000, deducted_amount: 10000, settled_amount: 110000, status: "Settled", submission_date: "2026-04-07" },
-  { id: "CLM-04", claim_no: "CLM-2026-8822", patient_name: "Suresh Gupta", insurer_name: "Max Bupa / Niva Bupa", claimed_amount: 310000, approved_amount: 290000, deducted_amount: 20000, settled_amount: 0, status: "Claim Submitted", submission_date: "2026-04-08" },
-]
+import React, { useState, useMemo } from "react"
+import { ShieldCheck, Search, Building2, CheckCircle2, Download, RefreshCw, DollarSign, Eye } from "lucide-react"
+import { BillingDatabase, type ClaimRecord, type ClaimStatus } from "../../services/billingDb"
+import { accountsApi } from "../../services/accounts/client"
+import { syncOperationalFeed } from "../../services/accounts/operationalFeed"
+import {
+  Button, Card, Empty, ErrorNote, Field, Input, Loaded, Modal, Money, Notice, PageHeader, Pill, Select, Table,
+  Td, Th, downloadCsv, formatDate, formatINR, formatINRShort, today, useAction, useApi
+} from "./ui"
 
 export default function InsuranceAccountsView() {
-  const [claims, setClaims] = useState<InsuranceClaimRow[]>(INITIAL_INSURANCE_CLAIMS)
+  const [claimsRevision, setClaimsRevision] = useState(0)
   const [search, setSearch] = useState("")
-  const [settledMsg, setSettledMsg] = useState<string | null>(null)
+  const [filterInsurer, setFilterInsurer] = useState("all")
+  const [filterStatus, setFilterStatus] = useState("all")
+  const [settlingClaim, setSettlingClaim] = useState<ClaimRecord | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const action = useAction()
 
-  const filtered = claims.filter(c => {
-    const q = search.toLowerCase()
-    return c.claim_no.toLowerCase().includes(q) || c.patient_name.toLowerCase().includes(q) || c.insurer_name.toLowerCase().includes(q)
+  // Live claims from BillingDatabase (only genuine insurance claims)
+  const claims = useMemo(() => {
+    return BillingDatabase.getClaims().filter(
+      (c) =>
+        Boolean(c.insuranceProvider) &&
+        c.insuranceProvider !== "Self-Pay" &&
+        (Number(c.insurancePortion) > 0 || Number(c.totalAmount) > 0)
+    )
+  }, [claimsRevision])
+
+  // Unique list of insurers
+  const insurers = useMemo(() => {
+    return Array.from(new Set(claims.map((c) => c.insuranceProvider).filter(Boolean)))
+  }, [claims])
+
+  // Filtered claims
+  const filtered = claims.filter((c) => {
+    const q = search.trim().toLowerCase()
+    const matchesSearch =
+      !q ||
+      c.invoiceNo.toLowerCase().includes(q) ||
+      c.id.toLowerCase().includes(q) ||
+      (c.preAuthCode && c.preAuthCode.toLowerCase().includes(q)) ||
+      c.patientName.toLowerCase().includes(q) ||
+      c.insuranceProvider.toLowerCase().includes(q)
+    const matchesInsurer = filterInsurer === "all" || c.insuranceProvider === filterInsurer
+    const isSettled = Boolean(c.tpa?.settledAt) || c.status === "Paid"
+    const matchesStatus =
+      filterStatus === "all" ||
+      (filterStatus === "settled" && isSettled) ||
+      (filterStatus === "pending" && !isSettled)
+    return matchesSearch && matchesInsurer && matchesStatus
   })
 
-  const totalClaimed = claims.reduce((sum, c) => sum + c.claimed_amount, 0)
-  const totalApproved = claims.reduce((sum, c) => sum + c.approved_amount, 0)
-  const totalSettled = claims.reduce((sum, c) => sum + c.settled_amount, 0)
-  const totalPending = totalApproved - totalSettled
+  // Dynamic Financial Aggregations
+  const totalClaimed = claims.reduce((sum, c) => sum + (Number(c.totalAmount) || 0), 0)
+  const totalApproved = claims.reduce((sum, c) => sum + (Number(c.insurancePortion) || Number(c.totalAmount) || 0), 0)
+  const totalSettled = claims.reduce((sum, c) => sum + (Number(c.tpa?.settledAmount) || (c.status === "Paid" ? Number(c.insurancePortion) : 0)), 0)
+  const totalPending = Math.max(0, totalApproved - totalSettled)
 
-  const handleSettleClaim = (claim: InsuranceClaimRow) => {
-    setClaims(claims.map(c => c.id === claim.id ? { ...c, settled_amount: c.approved_amount, status: "Settled" } : c))
-    setSettledMsg(`Claim ${claim.claim_no} marked settled for ₹${claim.approved_amount.toLocaleString("en-IN")}.`)
-    setTimeout(() => setSettledMsg(null), 4000)
+  const handleSyncToLedger = () => {
+    action.run(
+      () => syncOperationalFeed(),
+      (res) => {
+        setNotice(
+          `Insurance feed synchronized to general ledger: ${res.posted} entries posted, ${res.duplicate} duplicate(s) reconciled.`
+        )
+        setClaimsRevision((r) => r + 1)
+      }
+    )
+  }
+
+  const exportClaims = () => {
+    downloadCsv(
+      `insurance_tpa_claims_${today()}.csv`,
+      ["Invoice No", "Claim Ref", "Patient", "Insurer / TPA", "Total Bill", "Insurance Portion", "Settled Amount", "Status"],
+      claims.map((c) => [
+        c.invoiceNo,
+        c.preAuthCode || c.id,
+        c.patientName,
+        c.insuranceProvider,
+        c.totalAmount,
+        c.insurancePortion,
+        c.tpa?.settledAmount || 0,
+        c.status,
+      ])
+    )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-[#DDE2EC] shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
-            <ShieldCheck className="text-[#1B4FD8]" size={20} />
-            Insurance & Corporate (TPA) Sub-Ledger Tracking
-          </h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Pre-Auth Approval Reconciliation, Co-Pay Deductions & TPA Settlement Vouchers
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Insurance & Corporate (TPA) Sub-Ledger Tracking"
+        subtitle="Pre-authorization approval reconciliation, co-pay deductions, TPA settlement vouchers, and receivables ledger integration."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={exportClaims}>
+              <Download size={13} /> Export CSV
+            </Button>
+            <Button variant="primary" size="sm" busy={action.busy} onClick={handleSyncToLedger}>
+              <RefreshCw size={13} /> Sync to General Ledger
+            </Button>
+          </div>
+        }
+      />
 
-      {settledMsg && (
-        <div className="p-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl text-xs font-semibold text-[#047857]">
-          {settledMsg}
-        </div>
-      )}
+      <Notice message={notice} onClose={() => setNotice(null)} />
+      <ErrorNote message={action.error} />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
-          <span className="text-xs text-[#64748B] font-medium">Total Claimed</span>
-          <div className="text-xl font-bold text-[#0F172A] mt-1">₹{totalClaimed.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#64748B] mt-0.5">{claims.length} Total Claims</div>
+          <span className="text-xs text-[#64748B] font-medium">Total Claimed Value</span>
+          <div className="text-xl font-bold text-[#0F172A] mt-1">{formatINRShort(totalClaimed)}</div>
+          <div className="text-[11px] text-[#64748B] mt-0.5">{claims.length} Total Insurance Cases</div>
         </div>
 
         <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
-          <span className="text-xs text-[#64748B] font-medium">Approved by Insurer</span>
-          <div className="text-xl font-bold text-[#047857] mt-1">₹{totalApproved.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#047857] mt-0.5 font-semibold">TPA Guaranteed Sum</div>
+          <span className="text-xs text-[#64748B] font-medium">TPA Approved Sum</span>
+          <div className="text-xl font-bold text-[#047857] mt-1">{formatINRShort(totalApproved)}</div>
+          <div className="text-[11px] text-[#047857] mt-0.5 font-semibold">Pre-Auth Guaranteed</div>
         </div>
 
         <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
-          <span className="text-xs text-[#64748B] font-medium">Settled & Received</span>
-          <div className="text-xl font-bold text-[#1B4FD8] mt-1">₹{totalSettled.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#1B4FD8] mt-0.5 font-semibold">Credited to Bank</div>
+          <span className="text-xs text-[#64748B] font-medium">Settled &amp; Received</span>
+          <div className="text-xl font-bold text-[#1B4FD8] mt-1">{formatINRShort(totalSettled)}</div>
+          <div className="text-[11px] text-[#1B4FD8] mt-0.5 font-semibold">Credited to Bank Account</div>
         </div>
 
         <div className="bg-white border border-[#DDE2EC] p-4 rounded-xl shadow-xs">
-          <span className="text-xs text-[#64748B] font-medium">Pending Settlement</span>
-          <div className="text-xl font-bold text-[#B45309] mt-1">₹{totalPending.toLocaleString("en-IN")}</div>
-          <div className="text-[11px] text-[#B45309] mt-0.5 font-semibold">Outstanding AR</div>
+          <span className="text-xs text-[#64748B] font-medium">Pending TPA Receivables</span>
+          <div className="text-xl font-bold text-[#BE123C] mt-1">{formatINRShort(totalPending)}</div>
+          <div className="text-[11px] text-[#BE123C] mt-0.5 font-semibold">Awaiting Insurer Remittance</div>
         </div>
       </div>
 
-      {/* Table */}
+      {/* Filter and Table */}
       <div className="bg-white border border-[#DDE2EC] rounded-xl overflow-hidden shadow-xs">
         <div className="p-4 border-b border-[#F1F5F9] bg-[#FAFAFA] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <h3 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2">
-            <Building2 size={16} className="text-[#1B4FD8]" />
-            TPA / Corporate Claims Register
-          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-2.5 text-[#94A3B8]" size={14} />
+              <input
+                type="text"
+                placeholder="Search invoice, patient or TPA..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full text-xs pl-8 pr-3 py-1.5 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8] bg-white"
+              />
+            </div>
+            <div className="w-48">
+              <Select value={filterInsurer} onChange={(e) => setFilterInsurer(e.target.value)}>
+                <option value="all">All Insurers / TPAs</option>
+                {insurers.map((ins) => (
+                  <option key={ins} value={ins}>
+                    {ins}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="w-36">
+              <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending Settlement</option>
+                <option value="settled">Settled</option>
+              </Select>
+            </div>
+          </div>
+          <span className="text-xs text-[#64748B]">
+            Showing {filtered.length} of {claims.length} claims
+          </span>
+        </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-2.5 text-[#94A3B8]" size={14} />
-            <input
-              type="text"
-              placeholder="Search claim, patient or insurer..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full text-xs pl-8 pr-3 py-1.5 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
-            />
+        {filtered.length === 0 ? (
+          <Empty>
+            {claims.length === 0
+              ? "No insurance claims recorded in the billing system yet."
+              : "No insurance claims match filter."}
+          </Empty>
+        ) : (
+          <Table dense>
+            <thead>
+              <tr>
+                <Th>Invoice / Claim #</Th>
+                <Th>Patient Name</Th>
+                <Th>Insurer / TPA</Th>
+                <Th right>Total Bill</Th>
+                <Th right>TPA Portion</Th>
+                <Th right>Settled (₹)</Th>
+                <Th>Status</Th>
+                <Th right>Action</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => {
+                const isSettled = Boolean(c.tpa?.settledAt) || c.status === "Paid"
+                const settledAmount =
+                  c.tpa?.settledAmount !== undefined
+                    ? c.tpa.settledAmount
+                    : isSettled
+                    ? c.insurancePortion
+                    : 0
+
+                return (
+                  <tr key={c.id} className="hover:bg-[#F8FAFC]">
+                    <td className="py-2.5 px-3">
+                      <div className="font-mono font-bold text-xs text-[#1B4FD8]">{c.invoiceNo}</div>
+                      {c.preAuthCode && (
+                        <div className="text-[10.5px] font-mono text-[#64748B]">Auth: {c.preAuthCode}</div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 font-semibold text-xs text-[#0F172A]">
+                      {c.patientName}
+                      <div className="text-[11px] text-[#64748B] font-normal font-mono">{c.patientId || c.mrn}</div>
+                    </td>
+                    <td className="py-2.5 px-3 text-xs text-[#334155]">{c.insuranceProvider}</td>
+                    <td className="py-2.5 px-3 text-right font-mono text-xs font-medium">
+                      {formatINR(c.totalAmount)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-xs font-bold text-[#047857]">
+                      {formatINR(c.insurancePortion)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-xs font-bold text-[#1B4FD8]">
+                      {formatINR(settledAmount, { blankZero: true }) || "—"}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <Pill tone={isSettled ? "green" : "amber"}>
+                        {isSettled ? "Settled / Paid" : c.status || "Submitted"}
+                      </Pill>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      {!isSettled ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => setSettlingClaim(c)}
+                        >
+                          Post Settlement
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-[#047857] font-semibold">✓ Settled</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </Table>
+        )}
+      </div>
+
+      {/* Post Settlement Modal */}
+      {settlingClaim && (
+        <PostSettlementModal
+          claim={settlingClaim}
+          onClose={() => setSettlingClaim(null)}
+          onSaved={(msg) => {
+            setSettlingClaim(null)
+            setNotice(msg)
+            setClaimsRevision((r) => r + 1)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function PostSettlementModal({
+  claim,
+  onClose,
+  onSaved,
+}: {
+  claim: ClaimRecord
+  onClose: () => void
+  onSaved: (msg: string) => void
+}) {
+  const defaultSettled = String(claim.insurancePortion || claim.totalAmount || "")
+  const [settledAmount, setSettledAmount] = useState(defaultSettled)
+  const [deduction, setDeduction] = useState("0")
+  const [deductionReason, setDeductionReason] = useState("")
+  const [shortfallTo, setShortfallTo] = useState<"writeoff" | "patient">("writeoff")
+  const [reference, setReference] = useState("")
+  const [settlementDate, setSettlementDate] = useState(today())
+  const action = useAction()
+
+  const save = () => {
+    const sAmount = Number(settledAmount) || 0
+    const dAmount = Number(deduction) || 0
+    if (sAmount <= 0) return
+
+    action.run(
+      async () => {
+        // 1. Update BillingDatabase claim record
+        BillingDatabase.updateClaim(claim.id, {
+          status: "Paid" as ClaimStatus,
+          tpa: {
+            settledAt: settlementDate,
+            settledAmount: sAmount,
+            deduction: dAmount,
+            shortfallTo,
+            deductionReason: deductionReason || undefined,
+            settlementRef: reference || undefined,
+          },
+        })
+
+        // 2. Post accounting settlement event into the ledger
+        const slug = (val: string) =>
+          val.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "")
+        const payer = {
+          id: slug(claim.insuranceProvider),
+          name: claim.insuranceProvider,
+          type: "insurance",
+        }
+
+        const postingRes = await accountsApi.post([
+          {
+            event_id: `SETTLE-${claim.id}`,
+            type: "INSURANCE_SETTLEMENT",
+            source: "insurance",
+            date: settlementDate,
+            bill_no: claim.invoiceNo,
+            claim_ref: claim.preAuthCode || claim.id,
+            payer,
+            patient: { id: claim.patientId || claim.mrn, name: claim.patientName },
+            settled: sAmount,
+            deduction: dAmount,
+            deduction_to: shortfallTo,
+            deduction_reason: deductionReason,
+            reference: reference || undefined,
+          },
+        ])
+
+        return postingRes
+      },
+      () => {
+        onSaved(
+          `Settlement for claim ${claim.invoiceNo} posted: ₹${Number(settledAmount).toLocaleString("en-IN")} credited.`
+        )
+      }
+    )
+  }
+
+  return (
+    <Modal
+      title={`Post TPA Settlement: ${claim.invoiceNo}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            busy={action.busy}
+            disabled={!settledAmount || Number(settledAmount) <= 0}
+            onClick={save}
+          >
+            Post Settlement &amp; Journal
+          </Button>
+        </>
+      }
+    >
+      <ErrorNote message={action.error} />
+      <div className="space-y-3">
+        <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="text-[#64748B]">Patient:</span>
+            <span className="font-semibold text-[#0F172A]">{claim.patientName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[#64748B]">Insurer / TPA:</span>
+            <span className="font-semibold text-[#1B4FD8]">{claim.insuranceProvider}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[#64748B]">TPA Guaranteed Amount:</span>
+            <span className="font-bold text-[#047857]">{formatINR(claim.insurancePortion)}</span>
           </div>
         </div>
 
-        <table className="w-full text-left text-xs">
-          <thead className="bg-[#F8FAFC] text-[#475569] font-bold border-b border-[#E2E8F0]">
-            <tr>
-              <th className="py-2.5 px-4">Claim ID</th>
-              <th className="py-2.5 px-4">Patient</th>
-              <th className="py-2.5 px-4">Insurer / TPA</th>
-              <th className="py-2.5 px-4 text-right">Claimed (₹)</th>
-              <th className="py-2.5 px-4 text-right">Approved (₹)</th>
-              <th className="py-2.5 px-4 text-right">Settled (₹)</th>
-              <th className="py-2.5 px-4">Status</th>
-              <th className="py-2.5 px-4 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#F1F5F9] text-[#334155]">
-            {filtered.map(c => (
-              <tr key={c.id} className="hover:bg-[#F8FAFC]">
-                <td className="py-2.5 px-4 font-mono font-bold text-[#1B4FD8]">{c.claim_no}</td>
-                <td className="py-2.5 px-4 font-semibold text-[#0F172A]">{c.patient_name}</td>
-                <td className="py-2.5 px-4">{c.insurer_name}</td>
-                <td className="py-2.5 px-4 text-right font-mono">₹{c.claimed_amount.toLocaleString("en-IN")}</td>
-                <td className="py-2.5 px-4 text-right font-mono font-semibold text-[#047857]">₹{c.approved_amount.toLocaleString("en-IN")}</td>
-                <td className="py-2.5 px-4 text-right font-mono font-bold text-[#1B4FD8]">₹{c.settled_amount.toLocaleString("en-IN")}</td>
-                <td className="py-2.5 px-4">
-                  <span className={`px-2 py-0.5 rounded font-semibold text-[10px] ${
-                    c.status === "Settled" ? "bg-[#ECFDF5] text-[#047857]" :
-                    c.status === "Pre-Auth Approved" ? "bg-[#EFF6FF] text-[#1B4FD8]" : "bg-[#FEF3C7] text-[#92400E]"
-                  }`}>
-                    {c.status}
-                  </span>
-                </td>
-                <td className="py-2.5 px-4 text-right">
-                  {c.status !== "Settled" ? (
-                    <button
-                      onClick={() => handleSettleClaim(c)}
-                      className="px-2.5 py-1 bg-[#1B4FD8] text-white rounded text-xs font-semibold hover:bg-[#1640B2] cursor-pointer"
-                    >
-                      Post Settlement
-                    </button>
-                  ) : (
-                    <span className="text-[#047857] font-semibold text-xs flex items-center justify-end gap-1">
-                      <CheckCircle2 size={13} /> Settled
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Settled Amount Received (₹)">
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settledAmount}
+              onChange={(e) => setSettledAmount(e.target.value)}
+            />
+          </Field>
+          <Field label="Settlement Date">
+            <Input
+              type="date"
+              value={settlementDate}
+              max={today()}
+              onChange={(e) => setSettlementDate(e.target.value)}
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="TPA Deduction / Disallowed (₹)">
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={deduction}
+              onChange={(e) => setDeduction(e.target.value)}
+            />
+          </Field>
+          <Field label="Deduction Shortfall Charged To">
+            <Select
+              value={shortfallTo}
+              onChange={(e) => setShortfallTo(e.target.value as "writeoff" | "patient")}
+            >
+              <option value="writeoff">Write-off (Hospital Absorbs)</option>
+              <option value="patient">Patient AR (Collect from Patient)</option>
+            </Select>
+          </Field>
+        </div>
+
+        <Field label="Deduction Reason (if any)">
+          <Input
+            value={deductionReason}
+            onChange={(e) => setDeductionReason(e.target.value)}
+            placeholder="e.g. Non-medical consumables disallowed"
+          />
+        </Field>
+
+        <Field label="Payment Reference / Bank UTR">
+          <Input
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="e.g. UTR-HDFC-99281726"
+          />
+        </Field>
       </div>
-    </div>
+    </Modal>
   )
 }

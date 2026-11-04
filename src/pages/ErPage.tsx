@@ -4672,7 +4672,7 @@ function ExistingPatientIntakePanel({
   }, [selectedPatient])
 
   useEffect(() => {
-    if (searchQuery.trim().length < 2) {
+    if (!searchQuery.trim()) {
       setSearchResults([])
 
       return
@@ -4688,7 +4688,7 @@ function ExistingPatientIntakePanel({
       } catch (error) {
         console.error(error)
       }
-    }, 400)
+    }, 120)
 
     return () => clearTimeout(handle)
   }, [searchQuery])
@@ -16146,7 +16146,7 @@ function MergeUnknownPatient({
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (selectedPatient || searchQuery.trim().length < 2) {
+    if (selectedPatient || !searchQuery.trim()) {
       setSearchResults([])
 
       return
@@ -16162,7 +16162,7 @@ function MergeUnknownPatient({
       } catch (error) {
         console.error(error)
       }
-    }, 400)
+    }, 120)
 
     return () => clearTimeout(handle)
   }, [searchQuery, selectedPatient])

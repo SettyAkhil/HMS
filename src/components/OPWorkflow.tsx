@@ -4,12 +4,17 @@ import { StatusBadge, Btn, Input } from "./shared"
 import { db, DBPatient, DBOPEncounter } from "../services/db"
 import { getDoctorMaster, getDoctorConsultationFee } from "../services/doctorMaster"
 import { HospAILogo } from "./HospAILogo"
+import { useBranding } from "./branding/DocumentBranding"
+import { OpCardPreview, cardBarcodeValue, opCardDataFor, printOpCard } from "./opcard/OpCard"
+import { openJourneyForCode } from "./opcard/JourneyScan"
 import { notifyAppointmentBooked } from "../services/patientMessaging"
 
 export interface OPPatient {
   id?: string
   umr: string
   opNumber: string
+  date?: string
+  createdAt?: string
   name: string
   age: number
   sex: "Male" | "Female" | "Other"
@@ -451,6 +456,7 @@ export default function OPWorkflow({
   // last used -- often billing, and often for a different patient than the one now
   // in front of them. The position resets; the typed data does not.
   const [currentStep, setCurrentStep] = useState<number>(initialStep || 2)
+  const branding = useBranding()
   const [dbEncounters, setDbEncounters] = useState<DBOPEncounter[]>([])
 
   // Load encounters from DB
@@ -880,6 +886,8 @@ export default function OPWorkflow({
       id: enc.id,
       umr: enc.umr,
       opNumber: enc.opNumber,
+      date: enc.date,
+      createdAt: enc.createdAt,
       name: enc.patientName,
       age: enc.age,
       sex: enc.sex as any,
@@ -890,7 +898,7 @@ export default function OPWorkflow({
         .filter((e) => e.id !== enc.id)
         .map((e) => ({
           opNumber: e.opNumber,
-          date: e.registrationTime,
+          date: (e as any).date || e.createdAt?.split("T")[0] || e.registrationTime,
           doctor: e.assignedDoctor,
           diagnosis: e.diagnosis || e.chiefComplaint,
         })),
@@ -930,8 +938,8 @@ export default function OPWorkflow({
       furtherAction: enc.furtherAction || "None",
       status: enc.status as any || "Registered",
       timestamps: enc.timestamps || {
-        arrival: enc.registrationTime,
-        registration: enc.registrationTime,
+        arrival: enc.createdAt || enc.registrationTime,
+        registration: enc.createdAt || enc.registrationTime,
       },
     })
   }
@@ -1526,114 +1534,69 @@ export default function OPWorkflow({
                   <span className="w-6 h-6 rounded bg-[#1B4FD8] text-white text-[12px] flex items-center justify-center font-bold">
                     1
                   </span>
-                  Digital Outpatient (OP) Book &amp; Pass
+                  OP Card
                 </h2>
                 <p className="text-[12px] text-[#64748B] mt-0.5">
-                  Official hospital pass linking permanent lifetime UMR{" "}
-                  <strong>{patient.umr}</strong> with visit encounter{" "}
-                  <strong>{patient.opNumber}</strong>.
+                  One card for life (UMR <strong>{patient.umr}</strong>), valid at
+                  every department. This visit is <strong>{patient.opNumber}</strong>.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() =>
+                  printOpCard(
+                    opCardDataFor(patient.umr, {
+                      patientName: patient.name,
+                      age: patient.age,
+                      sex: patient.sex,
+                      phone: patient.phone,
+                    }),
+                    branding,
+                  )
+                }
                 className="px-4 py-2 bg-white hover:bg-gray-50 border border-[#CBD5E1] text-gray-800 text-[12.5px] font-semibold rounded shadow-xs transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
               >
-                <Icon.Download /> Print OP Pass
+                <Icon.Download /> Print OP Card
               </button>
             </div>
 
-            {/* OP Book Digital Card (White Color with Shadows and Crisp Border) */}
-            <div className="printable-card max-w-xl mx-auto bg-white border-2 border-[#CBD5E1] text-gray-900 rounded p-6 shadow-md relative overflow-hidden">
-              {/* Top Accent Strip */}
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#1B4FD8]"></div>
-
-              <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3.5 mb-4">
-                <div className="flex items-center gap-2.5">
-                  <HospAILogo variant="icon" className="w-10 h-10 shrink-0" />
-                  <div>
-                    <div className="font-bold text-[14px] text-gray-900">
-                      HospAI General Hospital
-                    </div>
-                    <div className="text-[10px] text-[#64748B]">
-                      Official Outpatient (OP) Record Pass
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] uppercase font-bold text-[#64748B]">
-                    Visit Date
-                  </div>
-                  <div className="text-[12px] font-mono font-bold text-gray-900">
-                    {new Date().toLocaleDateString()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-4 text-[12.5px]">
-                <div>
-                  <div className="text-[10px] uppercase text-[#64748B] font-bold tracking-wider">
-                    Patient Name
-                  </div>
-                  <div className="text-[16px] font-bold text-gray-900 mt-0.5">
-                    {patient.name}
-                  </div>
-                  <div className="text-[11.5px] text-gray-600 mt-0.5 font-medium">
-                    {patient.age} yrs · {patient.sex} · {patient.phone}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] uppercase text-[#64748B] font-bold tracking-wider">
-                    Permanent UMR
-                  </div>
-                  <div className="text-[15px] font-mono font-bold text-[#1B4FD8] bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200 inline-block mt-0.5">
-                    {patient.umr}
-                  </div>
-                  <div className="text-[10px] uppercase text-[#64748B] font-bold tracking-wider mt-2">
-                    Visit OP Number
-                  </div>
-                  <div className="text-[15px] font-mono font-bold text-[#D97706] bg-amber-50 px-2.5 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
-                    {patient.opNumber}
-                  </div>
-                </div>
-              </div>
-
-              {/* Previous visits chip */}
-              {patient.previousVisits && patient.previousVisits.length > 0 && (
-                <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2.5 mb-4 text-[11px]">
-                  <div className="text-[#64748B] font-bold mb-1">
-                    Previous OP History Associated with {patient.umr}:
-                  </div>
-                  <div className="space-y-1">
-                    {patient.previousVisits.map((pv, i) => (
-                      <div
-                        key={i}
-                        className="flex justify-between text-[#475569]"
-                      >
-                        <span>
-                          • {pv.date} ({pv.opNumber}): {pv.diagnosis}
-                        </span>
-                        <span className="text-[#64748B] font-medium">
-                          {pv.doctor}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-[#E2E8F0] text-[11px] text-[#64748B]">
-                <span>
-                  Status:{" "}
-                  <strong className="text-[#166534] font-mono font-bold bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                    {patient.status}
-                  </strong>
-                </span>
-                <span className="font-mono text-gray-900 font-bold tracking-wider text-[12px]">
-                  Barcode: ||||| | |||| ||| ||||
-                </span>
-              </div>
+            <div className="flex flex-col items-center gap-3 py-2">
+              <OpCardPreview
+                card={opCardDataFor(patient.umr, {
+                  patientName: patient.name,
+                  age: patient.age,
+                  sex: patient.sex,
+                  phone: patient.phone,
+                })}
+                branding={branding}
+              />
+              <button
+                type="button"
+                onClick={() => openJourneyForCode(cardBarcodeValue(patient.umr))}
+                className="text-[12px] font-semibold text-[#1B4FD8] hover:underline cursor-pointer"
+              >
+                Open patient record (same as scanning the card) →
+              </button>
             </div>
+
+            {/* Previous visits stay on screen for the desk; they are not printed on the card. */}
+            {patient.previousVisits && patient.previousVisits.length > 0 && (
+              <div className="max-w-xl mx-auto bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2.5 text-[11px]">
+                <div className="text-[#64748B] font-bold mb-1">
+                  Previous OP visits for {patient.umr}
+                </div>
+                <div className="space-y-1">
+                  {patient.previousVisits.map((pv, i) => (
+                    <div key={i} className="flex justify-between text-[#475569]">
+                      <span>
+                        • {pv.date} ({pv.opNumber}): {pv.diagnosis}
+                      </span>
+                      <span className="text-[#64748B] font-medium">{pv.doctor}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end items-center pt-2">
               <button
@@ -3456,7 +3419,7 @@ export default function OPWorkflow({
                             ✓ PAID &amp; SETTLED
                           </div>
                           <div className="text-[11px] text-gray-500 mt-1 font-mono">
-                            Date: {new Date().toLocaleDateString()} ·{" "}
+                            Date: {patient.date || patient.createdAt?.split("T")[0] || new Date().toLocaleDateString()} ·{" "}
                             {patient.timestamps?.billingCompleted || "Now"}
                           </div>
                         </div>

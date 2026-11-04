@@ -15,8 +15,10 @@ import {
   findMatchingPatient,
 } from "../services/db"
 import PatientJourneyModal from "./PatientJourneyModal"
-import { HospAILogo } from "./HospAILogo"
-import { notifyOpRegistered, whatsAppHandoffUrl, smsHandoffUrl } from "../services/patientMessaging"
+import { useBranding } from "./branding/DocumentBranding"
+import { OpCardPreview, cardBarcodeValue, opCardDataFor, printOpCard } from "./opcard/OpCard"
+import { openJourneyForCode } from "./opcard/JourneyScan"
+import MessageDeliveryStatus from "./messaging/MessageDeliveryStatus"
 
 // Accurate age calculation from Date of Birth
 const calculateAge = (dobString: string): number => {
@@ -57,6 +59,8 @@ export default function Registration({
   // Database live state
   const [patients, setPatients] = useState<DBPatient[]>([])
   const [encounters, setEncounters] = useState<DBOPEncounter[]>([])
+  const branding = useBranding()
+  const [cardCode, setCardCode] = useState("")
   const [selectedEncounter, setSelectedEncounter] =
     useState<DBOPEncounter | null>(null)
 
@@ -274,7 +278,8 @@ export default function Registration({
         })
 
       setSelectedEncounter(createdEncounter)
-      notifyOpRegistered(createdEncounter)
+      // Registration message: sent by patientMessaging when db announces the
+      // registration (after the server write), so every desk path is covered once.
       refreshFromDb()
       toast.success(
         `Patient registered successfully! UMR: ${createdPatient.umr}, OP#: ${createdEncounter.opNumber}`,
@@ -325,7 +330,8 @@ export default function Registration({
   // 2. Handle Existing Patient Workflow -> View Record -> Generate Visit Pass -> Show Digital Card
   const handleCreateRevisitEncounter = (p: DBPatient) => {
     const newEncounter = db.createRevisitEncounter(p.umr)
-    notifyOpRegistered(newEncounter)
+    // Registration message: sent by patientMessaging when db announces the
+    // registration (after the server write), so every desk path is covered once.
 
     setSelectedEncounter(newEncounter)
     setGenerationAlert({
@@ -1019,7 +1025,7 @@ export default function Registration({
                                 className="flex justify-between text-[#475569]"
                               >
                                 <span>
-                                  • {pv.opNumber} ({pv.registrationTime})
+                                  • {pv.opNumber} ({pv.date || pv.createdAt?.split("T")[0] || pv.registrationTime})
                                 </span>
                                 <span className="text-[#64748B]">
                                   {pv.dept}
@@ -1094,9 +1100,9 @@ export default function Registration({
                     <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#15803D]">
                       📱 Patient Alert
                     </p>
-                    <p className="text-[11.5px] text-[#166534] mt-0.5 truncate" title={booked.phone}>
-                      SMS &amp; WhatsApp sent ({booked.phone || "patient"})
-                    </p>
+                    <div className="mt-0.5">
+                      <MessageDeliveryStatus encounterId={booked.encounterId} kind="appointment_booked" phone={booked.phone} compact />
+                    </div>
                   </div>
                   <div className="bg-white border border-[#FDE68A] rounded px-3 py-2">
                     <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#92400E]">
@@ -1109,36 +1115,6 @@ export default function Registration({
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2">
-                  {booked.phone && (
-                    <>
-                      <a
-                        href={
-                          whatsAppHandoffUrl(
-                            booked.phone,
-                            `Dear ${booked.name}, your appointment with ${booked.doctor} (${booked.dept}) is confirmed. Token ${booked.token}, Room ${booked.room}. Imperial Hospitals`,
-                          ) || "#"
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3.5 py-2 bg-[#25D366] hover:bg-[#20BD5A] text-white text-[12.5px] font-semibold rounded shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                        title="Open in WhatsApp directly"
-                      >
-                        <span>💬</span> Open in WhatsApp
-                      </a>
-                      <a
-                        href={
-                          smsHandoffUrl(
-                            booked.phone,
-                            `Dear ${booked.name}, your appointment with ${booked.doctor} (${booked.dept}) is confirmed. Token ${booked.token}, Room ${booked.room}. Imperial Hospitals`,
-                          ) || "#"
-                        }
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-[12.5px] font-semibold rounded shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                        title="Open SMS app directly"
-                      >
-                        <span>📲</span> Open in SMS
-                      </a>
-                    </>
-                  )}
                   {onGoToBilling && (
                     <button
                       type="button"
@@ -1256,11 +1232,11 @@ export default function Registration({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2 border-b border-[#E2E8F0] pb-3">
                   <div>
                     <h3 className="text-[15px] font-bold text-gray-900 flex items-center gap-2">
-                      <span>📖</span> Official Digital Outpatient (OP) Pass
+                      <span>🪪</span> OP Card
                     </h3>
                     <p className="text-[11.5px] text-[#64748B]">
-                      Lifetime UMR &amp; active visit OP number pass issued and
-                      saved to database.
+                      One card for life, valid at every department. Scanning its
+                      QR opens the patient&apos;s complete record &mdash; no login needed.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1274,9 +1250,20 @@ export default function Registration({
                     <Btn
                       variant="outline"
                       size="sm"
-                      onClick={() => window.print()}
+                      onClick={() =>
+                        printOpCard(
+                          opCardDataFor(selectedEncounter.umr, {
+                            patientName: selectedEncounter.patientName,
+                            age: selectedEncounter.age,
+                            sex: selectedEncounter.sex,
+                            phone: selectedEncounter.phone,
+                            bloodGroup: selectedEncounter.bloodGroup,
+                          }),
+                          branding,
+                        )
+                      }
                     >
-                      <Icon.Download /> Print OP Pass
+                      <Icon.Download /> Print OP Card
                     </Btn>
                     {/* Reception's next desk is Appointments, where symptom triage
                         picks the doctor. This used to open the OP Clinical Journey
@@ -1304,92 +1291,65 @@ export default function Registration({
                   </div>
                 </div>
 
-                <div
-                  id="printable-op-pass"
-                  className="printable-card printable-area max-w-xl mx-auto bg-white border-2 border-[#94A3B8] text-gray-900 rounded p-6 shadow-lg relative overflow-hidden"
-                >
-                  {/* Top Header Accent Strip */}
-                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#1B4FD8]"></div>
-
-                  <div className="flex justify-between items-center border-b border-[#E2E8F0] pb-3.5 mb-4">
-                    <div className="flex items-center gap-2.5">
-                      <HospAILogo variant="icon" className="w-10 h-10 shrink-0" />
-                      <div>
-                        <div className="font-bold text-[14px] text-gray-900">
-                          HospAI General Hospital
-                        </div>
-                        <div className="text-[10px] text-[#64748B]">
-                          Official Outpatient (OP) Record Pass
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[10px] uppercase font-bold text-[#64748B]">
-                        Registration Date
-                      </div>
-                      <div className="text-[12px] font-mono font-bold text-gray-900">
-                        {selectedEncounter.registrationTime}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 text-[12.5px] mb-4">
-                    <div>
-                      <div className="text-[10px] uppercase text-[#64748B] font-bold tracking-wider">
-                        Patient Name
-                      </div>
-                      <div className="text-[16px] font-bold text-gray-900 mt-0.5">
-                        {selectedEncounter.patientName}
-                      </div>
-                      <div className="text-[11.5px] text-gray-600 mt-0.5 font-medium">
-                        Age: <strong>{selectedEncounter.age} yrs</strong> · Sex:{" "}
-                        <strong>{selectedEncounter.sex}</strong> · Phone:{" "}
-                        <strong>{selectedEncounter.phone}</strong>
-                      </div>
-                      <div className="text-[11px] font-semibold mt-1">
-                        Dept:{" "}
-                        <span
-                          className={
-                            selectedEncounter.dept &&
-                            selectedEncounter.dept !== "Awaiting Triage"
-                              ? "text-[#1B4FD8]"
-                              : "text-amber-600"
-                          }
-                        >
-                          {selectedEncounter.dept || "Awaiting AI Triage"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[10px] uppercase text-[#64748B] font-bold tracking-wider">
-                        Permanent UMR (Lifetime)
-                      </div>
-                      <div className="text-[15px] font-mono font-bold text-[#1B4FD8] bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200 inline-block mt-0.5">
-                        {selectedEncounter.umr}
-                      </div>
-                      <div className="text-[10px] uppercase text-[#64748B] font-bold tracking-wider mt-2.5">
-                        Current Visit OP Number
-                      </div>
-                      <div className="text-[15px] font-mono font-bold text-[#D97706] bg-amber-50 px-2.5 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
-                        {selectedEncounter.opNumber}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-3 border-t border-[#E2E8F0] text-[11px] text-[#64748B]">
-                    <span>
-                      Status:{" "}
-                      <strong className="text-[#166534] font-mono font-bold bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                        {selectedEncounter.status}
-                      </strong>
-                    </span>
-                    <span className="font-mono text-gray-900 font-bold tracking-wider text-[12px]">
-                      Barcode: |||| ||| ||||| |||
-                    </span>
+                <div className="flex flex-col items-center gap-3 py-2">
+                  <OpCardPreview
+                    card={opCardDataFor(selectedEncounter.umr, {
+                      patientName: selectedEncounter.patientName,
+                      age: selectedEncounter.age,
+                      sex: selectedEncounter.sex,
+                      phone: selectedEncounter.phone,
+                      bloodGroup: selectedEncounter.bloodGroup,
+                    })}
+                    branding={branding}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => openJourneyForCode(cardBarcodeValue(selectedEncounter.umr))}
+                    title="Opens the patient's complete record in a new tab"
+                    className="text-[12px] font-semibold text-[#1B4FD8] hover:underline cursor-pointer"
+                  >
+                    Open patient record (same as scanning the card) →
+                  </button>
+                  {/* The registration message: sent automatically once the
+                      registration reaches the server; its real outcome here. */}
+                  <div className="w-full max-w-xl border-t border-[#E2E8F0] pt-2">
+                    <MessageDeliveryStatus
+                      encounterId={selectedEncounter.id}
+                      kind="op_registered"
+                      phone={selectedEncounter.phone}
+                    />
                   </div>
                 </div>
               </div>
             )}
+
+            {/* Card scan / lookup. A USB or Bluetooth scanner works on any
+                screen; this field is for typing a code by hand. */}
+            <form
+              className="bg-white border-2 border-[#CBD5E1] rounded p-4 shadow-md flex flex-wrap items-center gap-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (cardCode.trim()) openJourneyForCode(cardCode.trim())
+                setCardCode("")
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-bold text-gray-900">Scan OP card</div>
+                <div className="text-[11.5px] text-[#64748B]">
+                  Scan the card&apos;s QR with a phone or a 2-D desk scanner, or type the UMR / OP number here. Opens the
+                  patient&apos;s complete record in a new tab, with the full history download and card print.
+                </div>
+              </div>
+              <input
+                value={cardCode}
+                onChange={(e) => setCardCode(e.target.value)}
+                placeholder="UMR or OP number"
+                className="border border-[#CBD5E1] rounded px-3 py-2 text-[12.5px] font-mono w-56 focus:outline-none focus:border-[#1B4FD8]"
+              />
+              <Btn variant="primary" size="sm" type="submit" disabled={!cardCode.trim()}>
+                Open record
+              </Btn>
+            </form>
 
             {/* Today's Registration Log Table */}
             <div className="bg-white border-2 border-[#CBD5E1] rounded shadow-md overflow-hidden">
@@ -1469,8 +1429,8 @@ export default function Registration({
                           {e.isNew ? "New Patient" : "Revisit Encounter"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-mono text-gray-500">
-                        {e.registrationTime}
+                      <td className="px-4 py-3 font-mono text-gray-500 whitespace-nowrap">
+                        {e.date ? `${e.date} ${e.registrationTime}` : e.registrationTime}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">

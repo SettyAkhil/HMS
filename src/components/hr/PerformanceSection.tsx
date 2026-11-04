@@ -27,7 +27,7 @@ export function Reviews({ mine }: { mine?: boolean }) {
       {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty title="No reviews" hint={mine ? "Reviews appear when HR launches a cycle." : "Launch a review cycle to create reviews."} /> : (
         <Table head={["Employee", "Cycle", "Reviewer", "Stage", "Manager rating", "Final"]}>
           {list.data.map((r) => (
-            <tr key={r.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(r)}>
+            <tr key={r.id} className="hover:bg-[#F8FAFC] cursor-pointer" onClick={() => setOpen(r)}>
               <td className="px-4 py-2">{r.employee_name}</td>
               <td className="px-4 py-2">{r.cycle}</td>
               <td className="px-4 py-2">{r.reviewer_name ?? "HR"}</td>
@@ -54,7 +54,7 @@ function ReviewDrawer({ review, onClose, onDone }: { review: Review; onClose: ()
   const stepLabel: Record<string, string> = { self_assessment: "Self-assessment", manager_review: "Manager review", hr_review: "HR approval" }
   return (
     <Drawer open wide title={`${review.employee_name} · ${review.cycle}`} onClose={onClose} footer={editable && <><Btn onClick={onClose}>Close</Btn><Btn variant="primary" busy={busy === "s"} onClick={submit}>Submit {stepLabel[review.status]?.toLowerCase()}</Btn></>}>
-      <p className="text-xs text-slate-500 mb-3">Stage: {humanize(review.status)} · scale 1–{review.rating_scale}. Only the person whose step it is can submit; the server enforces it.</p>
+      <p className="text-xs text-gray-500 mb-3">Stage: {humanize(review.status)} · scale 1–{review.rating_scale}. Only the person whose step it is can submit; the server enforces it.</p>
       <Table head={["Criterion", "Weight", "Self", "Manager"]}>
         {review.scores.map((s) => (
           <tr key={s.criterion}>
@@ -75,13 +75,13 @@ function ReviewDrawer({ review, onClose, onDone }: { review: Review; onClose: ()
           </tr>
         ))}
       </Table>
-      {review.self_comments && <p className="text-sm mt-3"><span className="text-slate-500">Employee:</span> {review.self_comments}</p>}
-      {review.manager_comments && <p className="text-sm mt-1"><span className="text-slate-500">Manager:</span> {review.manager_comments}</p>}
-      {review.hr_comments && <p className="text-sm mt-1"><span className="text-slate-500">HR:</span> {review.hr_comments}</p>}
+      {review.self_comments && <p className="text-sm mt-3"><span className="text-gray-500 font-medium">Employee:</span> {review.self_comments}</p>}
+      {review.manager_comments && <p className="text-sm mt-1"><span className="text-gray-500 font-medium">Manager:</span> {review.manager_comments}</p>}
+      {review.hr_comments && <p className="text-sm mt-1"><span className="text-gray-500 font-medium">HR:</span> {review.hr_comments}</p>}
       {!!review.goals.length && (
         <div className="mt-4">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Goals</h4>
-          <ul className="text-sm space-y-1">{review.goals.map((g) => <li key={g.id}>{g.title} {g.target && <span className="text-slate-400">(target {g.target})</span>} — {g.progress}%</li>)}</ul>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Goals</h4>
+          <ul className="text-sm space-y-1">{review.goals.map((g) => <li key={g.id}>{g.title} {g.target && <span className="text-gray-400">(target {g.target})</span>} — {g.progress}%</li>)}</ul>
         </div>
       )}
       {editable && <div className="mt-4"><Field label="Comments"><textarea rows={3} className={inputCls} value={comments} onChange={(e) => setComments(e.target.value)} /></Field></div>}
@@ -122,7 +122,7 @@ function Cycles() {
           </div>
           {Object.entries(f.criteria as Record<string, any[]>).map(([key, rows]) => (
             <div key={key} className="mb-4">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">{key === "default" ? "Default criteria" : humanize(key)} <span className={total(rows) === 100 ? "text-[#007078]" : "text-rose-700"}>· {total(rows)}%</span></h4>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{key === "default" ? "Default criteria" : humanize(key)} <span className={total(rows) === 100 ? "text-[#1B4FD8]" : "text-rose-700"}>· {total(rows)}%</span></h4>
               {rows.map((r, i) => (
                 <div key={i} className="grid grid-cols-6 gap-2 mb-1">
                   <input className={inputCls + " col-span-4"} value={r.label} onChange={(e) => setF({ ...f, criteria: { ...f.criteria, [key]: rows.map((x, j) => (j === i ? { ...x, label: e.target.value, code: e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 40) || x.code } : x)) } })} />

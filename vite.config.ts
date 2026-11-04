@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import path from "node:path"
 import net from "node:net"
+import os from "node:os"
 // @ts-expect-error - JavaScript module without types
 import memoryStore from "./server/db/memoryStore.mjs"
 
@@ -463,7 +464,31 @@ const proxy = {
   },
 }
 
+// This machine's address on the local network (e.g. http://192.168.1.100:8443).
+// Patient-card QR codes link here when the app itself is open on localhost --
+// a phone that scans "localhost" would be looking at itself. VITE_PUBLIC_APP_URL
+// (e.g. the hospital's domain or tunnel) overrides it.
+function lanOrigin(): string {
+  const port = parseInt(process.env.PORT || "8443")
+  const virtual = /^(docker|br-|veth|virbr|vmnet|vboxnet|tun|tap|wg|lo|cni|flannel|kube)/i
+  for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+    if (virtual.test(name)) continue
+    for (const a of addrs ?? []) {
+      if (a.family === "IPv4" && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) {
+        return `http://${a.address}:${port}`
+      }
+    }
+  }
+  return ""
+}
+
 export default defineConfig({
+  define: {
+    // Dev server only: a production build must never bake in the build
+    // machine's LAN address -- deployed, the site's own origin (or
+    // VITE_PUBLIC_APP_URL) is what card QR codes link to.
+    "import.meta.env.VITE_LAN_ORIGIN": JSON.stringify(process.argv.includes("build") ? "" : lanOrigin()),
+  },
   plugins: [react(), tailwindcss(), hmsApiMockMiddleware()],
   resolve: {
     alias: {

@@ -1,0 +1,13 @@
+# Production image: code only -- no local uploads, samples, logs or secrets.
+.git
+.env
+.env.*
+!.env.example
+uploads
+test_samples
+*.log
+*.pdf
+__pycache__
+**/__pycache__
+*.pyc
+tests

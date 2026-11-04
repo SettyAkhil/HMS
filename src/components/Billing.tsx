@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react"
 import {
   BillingDatabase,
+  BILLING_PAYMENT_FAILED_EVENT,
   ClaimRecord,
   DepartmentType,
   isCashlessEligible,
@@ -328,7 +329,17 @@ export default function Billing({
   useEffect(() => {
     refreshData()
     const unsub = BillingDatabase.onUpdate(refreshData)
-    return () => unsub()
+    // A payment on a server bill is shown at once and confirmed by the server;
+    // if the server refuses it, the bill reverts on the next sync -- say why.
+    const onFailed = (e: Event) => {
+      const d = (e as CustomEvent<{ invoiceNo?: string ;error?: string }>).detail || {}
+      showToast(`Payment on ${d.invoiceNo || "the bill"} was NOT saved: ${d.error || "server refused it"}. Please collect again.`, "error")
+    }
+    window.addEventListener(BILLING_PAYMENT_FAILED_EVENT, onFailed)
+    return () => {
+      unsub()
+      window.removeEventListener(BILLING_PAYMENT_FAILED_EVENT, onFailed)
+    }
   }, [])
 
   // Set default selected claim if none selected or if preselected from ER

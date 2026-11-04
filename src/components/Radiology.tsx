@@ -2546,7 +2546,7 @@ export default function Radiology({
   onNavigateView?: (view: string, subParam?: string) => void
   onNavigateTab?: (tab: "worklist" | "reports" | "templates") => void
 }) {
-  const mappedView: RadiologyView =
+  const mappedView: RadiologyViewMode =
     initialTab === "worklist"
       ? "worklist"
       : initialTab === "operations"

@@ -38,3 +38,10 @@ logs/
 /scratch/
 tests/reports/
 
+
+# Production deployment (deploy/, ./deploy.sh): commit the examples, never the
+# real configuration or backups.
+!.env.example
+!**/.env.example
+/deploy/.env
+/backups/

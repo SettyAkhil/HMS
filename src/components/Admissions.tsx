@@ -51,6 +51,7 @@ export default function Admissions({ setNotice, navigate }: Props) {
   const [activeTab, setActiveTab] = useState<"requests" | "admitted">(
     "requests",
   )
+  const [admitFilter, setAdmitFilter] = useState<"today" | "all">("today")
   const [beds, setBeds] = useState<Bed[]>([])
   const [summary, setSummary] = useState<Summary>({
     total: 0,
@@ -115,6 +116,18 @@ export default function Admissions({ setNotice, navigate }: Props) {
           new Date(a.admission_date!).getTime(),
       )
   }, [beds])
+
+  const allOccupiedBeds = useMemo(() => {
+    return beds
+      .filter((b) => b.status === "Occupied")
+      .sort(
+        (a, b) =>
+          new Date(b.admission_date || 0).getTime() -
+          new Date(a.admission_date || 0).getTime(),
+      )
+  }, [beds])
+
+  const displayedAdmitted = admitFilter === "today" ? admittedToday : allOccupiedBeds
 
   const goToBedManagement = () => navigate?.("beds")
   const [paymentFor, setPaymentFor] = useState<Bed | null>(null)
@@ -220,7 +233,7 @@ export default function Admissions({ setNotice, navigate }: Props) {
                   : "border-transparent text-[#64748B] hover:text-gray-900"
               }`}
             >
-              Admitted Today ({admittedToday.length})
+              Admitted Patients ({allOccupiedBeds.length})
             </button>
           </div>
 
@@ -303,28 +316,56 @@ export default function Admissions({ setNotice, navigate }: Props) {
 
             {activeTab === "admitted" && (
               <div className="p-4">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5 bg-[#E2E8F0] p-0.5 rounded">
+                    <button
+                      type="button"
+                      onClick={() => setAdmitFilter("today")}
+                      className={`px-3 py-1 text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                        admitFilter === "today"
+                          ? "bg-white text-gray-900 shadow-2xs"
+                          : "text-[#64748B] hover:text-gray-900"
+                      }`}
+                    >
+                      Admitted Today ({admittedToday.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdmitFilter("all")}
+                      className={`px-3 py-1 text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                        admitFilter === "all"
+                          ? "bg-white text-gray-900 shadow-2xs"
+                          : "text-[#64748B] hover:text-gray-900"
+                      }`}
+                    >
+                      All Admitted Patients ({allOccupiedBeds.length})
+                    </button>
+                  </div>
+                </div>
                 {loading ? (
                   <p className="text-[12.5px] text-[#64748B] p-4">Loading...</p>
-                ) : admittedToday.length === 0 ? (
+                ) : displayedAdmitted.length === 0 ? (
                   <div className="py-12 flex flex-col items-center justify-center text-[#94A3B8]">
                     <div className="text-4xl mb-3">🛏️</div>
                     <div className="text-[13px] font-semibold text-gray-700 mb-1">
-                      No admissions today
+                      {admitFilter === "today" ? "No admissions today" : "No admitted patients"}
                     </div>
                     <div className="text-[12px]">
-                      Patients admitted today will appear here.
+                      {admitFilter === "today"
+                        ? "Patients admitted today will appear here. Switch to 'All Admitted Patients' to view prior admissions."
+                        : "No occupied beds currently in the hospital."}
                     </div>
                   </div>
                 ) : (
                   <div className="bed-info-card-grid">
-                    {admittedToday.map((bed) => (
+                    {displayedAdmitted.map((bed) => (
                       <div key={bed.id} className="flex flex-col gap-1.5">
                         <BedCard bed={bed} readOnly />
                         {/* Payment type is chosen per encounter; insurance opens its case. */}
                         <button
                           type="button"
                           onClick={() => setPaymentFor(bed)}
-                          className="h-8 px-2 bg-white border border-[#DDE2EC] hover:border-[#1B4FD8] text-[12px] font-semibold text-gray-800 flex items-center justify-center gap-1.5"
+                          className="h-8 px-2 bg-white border border-[#DDE2EC] hover:border-[#1B4FD8] text-[12px] font-semibold text-gray-800 flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           💳 Payment type
                         </button>

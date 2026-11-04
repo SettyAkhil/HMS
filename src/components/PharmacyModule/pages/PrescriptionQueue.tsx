@@ -15,6 +15,7 @@ import {
   PlusCircle,
   Trash2,
   Clock,
+  RefreshCw,
 } from "lucide-react"
 import { PharmacyDatabase } from "../../../services/pharmacyDb"
 
@@ -35,22 +36,29 @@ interface PrescriptionQueueProps {
 }
 
 function checkItemStock(item: any, medicinesList: any[], batchesList: any[]) {
-  const med = (medicinesList || []).find(
-    (m: any) =>
-      m.id === item.medicineId ||
-      m.name?.toLowerCase().trim() === item.medicineName?.toLowerCase().trim() ||
-      (m.generic && item.genericName && m.generic.toLowerCase().trim() === item.genericName.toLowerCase().trim()) ||
-      (item.medicineName && m.name && (item.medicineName.toLowerCase().includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(item.medicineName.toLowerCase())))
-  )
+  if (!item || typeof item !== "object") return false
+  const itemName = typeof item.medicineName === "string" ? item.medicineName.toLowerCase().trim() : ""
+  const itemGeneric = typeof item.genericName === "string" ? item.genericName.toLowerCase().trim() : ""
+
+  const med = (medicinesList || []).find((m: any) => {
+    if (!m || typeof m !== "object") return false
+    if (item.medicineId && m.id === item.medicineId) return true
+    const mName = typeof m.name === "string" ? m.name.toLowerCase().trim() : ""
+    if (itemName && mName && mName === itemName) return true
+    const mGeneric = typeof m.generic === "string" ? m.generic.toLowerCase().trim() : ""
+    if (itemGeneric && mGeneric && mGeneric === itemGeneric) return true
+    if (itemName && mName && (itemName.includes(mName) || mName.includes(itemName))) return true
+    return false
+  })
   if (!med) return false
   const activeBatches = (batchesList || []).filter(
-    (b: any) => b.medicineId === med.id && (b.availableQuantity ?? b.quantity ?? 0) > 0
+    (b: any) => b && b.medicineId === med.id && (b.availableQuantity ?? b.quantity ?? 0) > 0
   )
-  return activeBatches.length > 0 || (med.stock && med.stock > 0)
+  return activeBatches.length > 0 || (Number(med.stock) > 0)
 }
 
 function getPrescriptionStockStatus(rawItems: any[], medicinesList: any[], batchesList: any[]) {
-  if (!rawItems || rawItems.length === 0) {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return {
       type: "empty",
       label: "No Items",
@@ -104,6 +112,13 @@ export default function PrescriptionQueue({
   const [activeFilter, setActiveFilter] = useState("All")
   const [selected, setSelected] = useState<typeof prescriptions[0] | null>(null)
   const [search, setSearch] = useState("")
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleManualRefresh = () => {
+    setIsRefreshing(true)
+    refresh()
+    setTimeout(() => setIsRefreshing(false), 500)
+  }
 
   const filtered = (prescriptions || []).filter((rx) => {
     if (!rx) return false
@@ -158,29 +173,15 @@ export default function PrescriptionQueue({
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
-                onClick={() => {
-                  PharmacyDatabase.seedHospitalTestData(true)
-                  refresh()
-                  toast.success("Added prescription for Mr. G. Kumar with batch stock ready!")
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 bg-[#0F766E] text-white text-[12px] font-semibold rounded hover:bg-[#0c5e58] transition-colors shadow-sm"
-                title="Populate complete demo dataset for all sub-modules"
+                onClick={handleManualRefresh}
+                title="Refresh Prescriptions"
+                className="flex items-center gap-1.5 px-3 py-2 text-[12px] font-semibold text-[#0F766E] bg-white border border-[#E2E8F0] hover:bg-[#F0FDFA] rounded transition-colors"
               >
-                <PlusCircle size={14} /> Populate All Demo Data
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  PharmacyDatabase.clearAllPharmacyData()
-                  refresh()
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white text-rose-700 border border-rose-200 text-[12px] font-semibold rounded hover:bg-rose-50 transition-colors shadow-sm"
-                title="Clear all pharmacy data to start clean"
-              >
-                <Trash2 size={14} /> Clear All Data
+                <RefreshCw size={13} className={isRefreshing ? "animate-spin text-[#0F766E]" : "text-[#0F766E]"} />
+                <span>Sync Live</span>
               </button>
               <div className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded px-3 py-2">
                 <Search size={14} className="text-[#94A3B8]" />
@@ -198,7 +199,7 @@ export default function PrescriptionQueue({
         {/* Table */}
         <div className="flex-1 overflow-y-auto px-6 pb-6 pt-4">
           <div className="bg-white rounded-xl shadow-sm border border-[#E2E8F0] overflow-hidden">
-            <table>
+            <table className="w-full text-left border-collapse">
               <thead className="bg-[#ECFDF5] border-y border-[#A7F3D0]">
                 <tr>
                   <th className="py-3 px-4 text-[11px] font-bold text-[#065F46] uppercase tracking-wider">Prescription ID</th>
@@ -212,7 +213,7 @@ export default function PrescriptionQueue({
                   <th className="py-3 px-4 text-[11px] font-bold text-[#065F46] uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-[#E2E8F0]">
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-16 text-center">
@@ -230,13 +231,10 @@ export default function PrescriptionQueue({
                     return (
                       <tr key={rx.id} onClick={() => setSelected(rx)} className="hover:bg-[#F0FDFA] transition-colors cursor-pointer"
                       >
-                        <td
-                          className="font-mono text-[12px] font-semibold"
-                          style={{ color: "#0F766E" }}
-                        >
+                        <td className="py-3.5 px-4 font-mono text-[12px] font-semibold text-[#0F766E]">
                           {rx.id}
                         </td>
-                        <td>
+                        <td className="py-3.5 px-4">
                           <p className="font-medium text-[#0F1624] text-[13px]">
                             {rx.patient}
                           </p>
@@ -244,7 +242,7 @@ export default function PrescriptionQueue({
                             {rx.age}y · {rx.gender} · {rx.contact}
                           </p>
                         </td>
-                        <td>
+                        <td className="py-3.5 px-4">
                           <p className="text-[13px] text-[#334155]">
                             {rx.doctor}
                           </p>
@@ -252,14 +250,14 @@ export default function PrescriptionQueue({
                             {rx.department}
                           </p>
                         </td>
-                        <td className="text-[12px] whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-[12px] whitespace-nowrap">
                           <p className="text-[#0F1624] font-medium">{rx.date}</p>
                           <p className="text-[11px] font-semibold text-[#0F766E] flex items-center gap-1 mt-0.5">
                             <Clock size={11} className="text-[#0F766E]" />
                             {rx.arrivalTime || rx.time || "Just now"}
                           </p>
                         </td>
-                        <td className="text-[13px] font-semibold text-center py-2.5">
+                        <td className="py-3.5 px-4 text-[13px] font-semibold text-center">
                           <div className="flex flex-col items-center gap-1">
                             <span>{rx.items} {rx.items === 1 ? "item" : "items"}</span>
                             <span
@@ -271,18 +269,18 @@ export default function PrescriptionQueue({
                             </span>
                           </div>
                         </td>
-                        <td>
+                        <td className="py-3.5 px-4">
                           <StatusBadge status={rx.priority} size="sm" />
                         </td>
-                        <td>
+                        <td className="py-3.5 px-4">
                           <StatusBadge status={rx.status} size="sm" />
                         </td>
-                        <td className="text-[13px] text-[#64748B]">
+                        <td className="py-3.5 px-4 text-[13px] text-[#64748B]">
                           {rx.pharmacist ?? (
                             <span className="text-[#94A3B8] text-[12px]">—</span>
                           )}
                         </td>
-                        <td>
+                        <td className="py-3.5 px-4">
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"

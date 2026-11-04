@@ -916,23 +916,60 @@ export default function DoctorWorkflow({
       let status: any = "Sent To Pharmacy"
 
       if (rxMode === "DIGITAL") {
-        rxItems = medications.map((m, idx) => ({
-          id: `RX-ITEM-${idx + 1}`,
-          medicineName: m.medicine,
-          strength: m.strength,
-          dosage: m.dosage,
-          frequency: m.frequency,
-          duration: m.duration,
-          route: m.route,
-          instructions: m.instructions,
-          remarks: m.remarks,
-          quantity: m.quantity,
-          substitutionAllowed: true,
-        }))
+        const validMeds = medications.filter(
+          (m) => m && typeof m.medicine === "string" && m.medicine.trim().length > 0,
+        )
+        if (validMeds.length > 0) {
+          rxItems = validMeds.map((m, idx) => ({
+            id: `RX-ITEM-${idx + 1}`,
+            medicineName: m.medicine.trim(),
+            strength: m.strength || "",
+            dosage: m.dosage || "1 dose",
+            frequency: m.frequency || "OD",
+            duration: m.duration || "5 days",
+            route: m.route || "Oral",
+            instructions: m.instructions || "",
+            remarks: m.remarks || "",
+            quantity: Number(m.quantity) > 0 ? Number(m.quantity) : 1,
+            substitutionAllowed: true,
+          }))
+        } else {
+          rxItems = [
+            {
+              id: "RX-ITEM-1",
+              medicineName: "Doctor Prescription Order",
+              dosage: "As directed",
+              duration: "5 days",
+              quantity: 1,
+              substitutionAllowed: true,
+              instructions: advice || clinicalAssessment || "Consultation prescription order",
+            },
+          ]
+        }
       } else {
         source = "UPLOADED_IMAGE"
         status = "OCR Processing"
+        rxItems = [
+          {
+            id: "RX-ITEM-1",
+            medicineName: "Uploaded Rx Sheet (Verify Image)",
+            dosage: "As written on sheet",
+            duration: "As written",
+            quantity: 1,
+            substitutionAllowed: false,
+            instructions: advice || "Prescription uploaded as scanned image. Review attached sheet before dispensing.",
+          },
+        ]
       }
+
+      const nowIso = new Date().toISOString()
+      const rxDate = nowIso.split("T")[0]
+      const rxArrival = activeEncounter.registrationTime || new Date().toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      })
 
       const rx: AppPrescription = {
         id: rxId,
@@ -944,20 +981,37 @@ export default function DoctorWorkflow({
         visitId: activeEncounter.opNumber,
         doctorId: selectedDoctor.id,
         doctorName: selectedDoctor.name,
-        department: selectedDoctor.specialty,
+        department: activeEncounter.dept || selectedDoctor.specialty,
         diagnosis: diagnosis,
-        date: new Date().toISOString().split("T")[0],
+        date: rxDate,
+        arrivalTime: rxArrival,
         sourceType: source,
         priority: "Normal",
         status: status,
         dispensingStatus: "Waiting",
         imageUrl: uploadedRxImage || undefined,
         items: rxItems,
-        createdAt: new Date().toISOString(),
+        verificationNotes: `Clinical consultation prescription finalized by ${selectedDoctor.name} (${selectedDoctor.specialty}) for visit ${activeEncounter.opNumber}. Diagnosis: ${diagnosis || "Clinical assessment completed"}.`,
+        createdAt: nowIso,
       }
 
       const existingRx = PharmacyDatabase.getPrescriptions()
-      PharmacyDatabase.savePrescriptions([...existingRx, rx])
+      PharmacyDatabase.savePrescriptions([
+        rx,
+        ...existingRx.filter((p) => p.id !== rx.id),
+      ])
+
+      // Instant cross-tab and in-tab notification for Pharmacy department
+      try {
+        window.dispatchEvent(
+          new CustomEvent("hospai_pharmacy_toast", {
+            detail: {
+              type: "info",
+              message: `New prescription ${rxId} received for ${activeEncounter.patientName} (${rxItems.length} items)`,
+            },
+          }),
+        )
+      } catch {}
 
       AuditDatabase.logEvent(
         "Prescription Created",
@@ -989,8 +1043,45 @@ export default function DoctorWorkflow({
 
   const handleUploadImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const url = URL.createObjectURL(e.target.files[0])
-      setUploadedRxImage(url)
+      const file = e.target.files[0]
+      const reader = new FileReader()
+      reader.onload = (uploadEvent) => {
+        const rawDataUrl = uploadEvent.target?.result as string
+        if (!rawDataUrl) return
+
+        // Compress image via canvas to prevent localStorage quota exhaustion
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement("canvas")
+          let width = img.width
+          let height = img.height
+          const maxDim = 1200
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width)
+              width = maxDim
+            } else {
+              width = Math.round((width * maxDim) / height)
+              height = maxDim
+            }
+          }
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext("2d")
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height)
+            const compressed = canvas.toDataURL("image/jpeg", 0.75)
+            setUploadedRxImage(compressed)
+          } else {
+            setUploadedRxImage(rawDataUrl)
+          }
+        }
+        img.onerror = () => {
+          setUploadedRxImage(rawDataUrl)
+        }
+        img.src = rawDataUrl
+      }
+      reader.readAsDataURL(file)
     }
   }
 

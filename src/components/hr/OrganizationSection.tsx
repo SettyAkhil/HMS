@@ -76,16 +76,16 @@ function TreeItem({ node, depth }: { node: TreeNode; depth: number }) {
     <li>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-[6px] hover:bg-slate-50 text-left"
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50/80 text-left transition-colors cursor-pointer"
         style={{ paddingLeft: 8 + depth * 20 }}
         aria-expanded={hasKids ? open : undefined}
       >
-        {hasKids ? open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" /> : <span className="w-3.5" />}
-        <Icon className={`w-4 h-4 ${node.type === "hospital" ? "text-[#582C5F]" : "text-[#007078]"}`} />
-        <span className="text-sm text-slate-800">{node.name}</span>
-        <span className="text-[11px] text-slate-400 font-mono">{node.code}</span>
-        {node.head_name && <span className="text-[11px] text-slate-500">· Head: {node.head_name}</span>}
-        {node.type !== "unit" && <span className="ml-auto text-[11px] text-slate-500 tabular-nums">{node.headcount} staff</span>}
+        {hasKids ? open ? <ChevronDown className="w-3.5 h-3.5 text-[#64748B]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#64748B]" /> : <span className="w-3.5" />}
+        <Icon className={`w-4 h-4 ${node.type === "hospital" ? "text-[#582C5F]" : "text-[#1B4FD8]"}`} />
+        <span className="text-sm font-medium text-gray-900">{node.name}</span>
+        <span className="text-[11px] text-[#64748B] font-mono">{node.code}</span>
+        {node.head_name && <span className="text-[11px] text-[#64748B]">· Head: {node.head_name}</span>}
+        {node.type !== "unit" && <span className="ml-auto text-[11px] text-[#64748B] font-mono tabular-nums">{node.headcount} staff</span>}
       </button>
       {open && hasKids && (
         <ul>
@@ -179,15 +179,15 @@ function Departments({ refs, canEdit, onChange }: { refs: NonNullable<ReturnType
       ) : (
         <Table head={["Code", "Department", "Parent", "Branch", "Type", "Head", "Staff", "Budget", ""]}>
           {refs.departments.map((d) => (
-            <tr key={d.id} className="hover:bg-slate-50">
-              <td className="px-4 py-2 font-mono text-xs text-slate-500">{d.code}</td>
-              <td className="px-4 py-2 text-slate-900">{d.name}</td>
-              <td className="px-4 py-2 text-slate-600">{d.parent_id ? byId[d.parent_id]?.name ?? "—" : "—"}</td>
-              <td className="px-4 py-2 text-slate-600">{d.branch_id ? branchName[d.branch_id] ?? "—" : "All"}</td>
-              <td className="px-4 py-2 text-slate-600 capitalize">{d.kind}</td>
-              <td className="px-4 py-2 text-slate-600">{d.head_name ?? "—"}</td>
-              <td className="px-4 py-2 tabular-nums">{d.headcount}</td>
-              <td className="px-4 py-2 tabular-nums text-slate-600">{d.annual_budget ? `₹${Number(d.annual_budget).toLocaleString("en-IN")}` : "—"}</td>
+            <tr key={d.id} className="hover:bg-gray-50/80 transition-colors">
+              <td className="px-4 py-2 font-mono text-xs text-[#64748B]">{d.code}</td>
+              <td className="px-4 py-2 font-semibold text-gray-900">{d.name}</td>
+              <td className="px-4 py-2 text-gray-700">{d.parent_id ? byId[d.parent_id]?.name ?? "—" : "—"}</td>
+              <td className="px-4 py-2 text-gray-700">{d.branch_id ? branchName[d.branch_id] ?? "—" : "All"}</td>
+              <td className="px-4 py-2 text-gray-700 capitalize">{d.kind}</td>
+              <td className="px-4 py-2 text-gray-700">{d.head_name ?? "—"}</td>
+              <td className="px-4 py-2 font-mono tabular-nums">{d.headcount}</td>
+              <td className="px-4 py-2 font-mono tabular-nums text-gray-700">{d.annual_budget ? `₹${Number(d.annual_budget).toLocaleString("en-IN")}` : "—"}</td>
               <td className="px-4 py-2 text-right whitespace-nowrap">
                 {canEdit && (
                   <>
@@ -383,14 +383,14 @@ function Designations({ items, canEdit, onChange }: { items: Designation[]; canE
       ) : (
         <Table head={["Code", "Title", "Category", "Grade", "Clinical", "Registration", "Staff", ""]}>
           {items.map((d) => (
-            <tr key={d.id} className="hover:bg-slate-50">
-              <td className="px-4 py-2 font-mono text-xs text-slate-500">{d.code}</td>
-              <td className="px-4 py-2 text-slate-900">{d.title}</td>
-              <td className="px-4 py-2 text-slate-600">{categoryLabel(d.job_category)}</td>
-              <td className="px-4 py-2 text-slate-600">{d.grade ?? "—"}</td>
-              <td className="px-4 py-2 text-slate-600">{d.is_clinical ? "Yes" : "No"}</td>
-              <td className="px-4 py-2 text-slate-600">{d.requires_registration ? "Required" : "—"}</td>
-              <td className="px-4 py-2 tabular-nums">{d.headcount}</td>
+            <tr key={d.id} className="hover:bg-gray-50/80 transition-colors">
+              <td className="px-4 py-2 font-mono text-xs text-[#64748B]">{d.code}</td>
+              <td className="px-4 py-2 font-semibold text-gray-900">{d.title}</td>
+              <td className="px-4 py-2 text-gray-700">{categoryLabel(d.job_category)}</td>
+              <td className="px-4 py-2 text-gray-700">{d.grade ?? "—"}</td>
+              <td className="px-4 py-2 text-gray-700">{d.is_clinical ? "Yes" : "No"}</td>
+              <td className="px-4 py-2 text-gray-700">{d.requires_registration ? "Required" : "—"}</td>
+              <td className="px-4 py-2 font-mono tabular-nums">{d.headcount}</td>
               <td className="px-4 py-2 text-right">
                 {canEdit && (
                   <Btn
@@ -446,10 +446,10 @@ function Designations({ items, canEdit, onChange }: { items: Designation[]; canE
                 </select>
               </Field>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-gray-700 font-medium">
               <input type="checkbox" checked={form.is_clinical} onChange={(e) => setForm({ ...form, is_clinical: e.target.checked })} /> Clinical role
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-gray-700 font-medium">
               <input type="checkbox" checked={form.requires_registration} onChange={(e) => setForm({ ...form, requires_registration: e.target.checked })} />
               Needs professional registration
             </label>
@@ -492,11 +492,11 @@ function Sites({ refs, canEdit, onChange }: { refs: NonNullable<ReturnType<typeo
         {refs.hospitals.length === 0 ? (
           <Empty title="No hospital yet" />
         ) : (
-          <ul className="divide-y divide-slate-100 mb-4">
+          <ul className="divide-y divide-[#EEF1F6] mb-4">
             {refs.hospitals.map((h) => (
               <li key={h.id} className="py-2 text-sm flex justify-between">
-                <span>{h.name}</span>
-                <span className="font-mono text-xs text-slate-400">{h.code}</span>
+                <span className="font-medium text-gray-900">{h.name}</span>
+                <span className="font-mono text-xs text-[#64748B]">{h.code}</span>
               </li>
             ))}
           </ul>
@@ -519,14 +519,14 @@ function Sites({ refs, canEdit, onChange }: { refs: NonNullable<ReturnType<typeo
         {refs.branches.length === 0 ? (
           <Empty title="No branches yet" />
         ) : (
-          <ul className="divide-y divide-slate-100 mb-4">
+          <ul className="divide-y divide-[#EEF1F6] mb-4">
             {refs.branches.map((b) => (
               <li key={b.id} className="py-2 text-sm flex justify-between">
                 <span>
-                  {b.name}
-                  {b.city && <span className="text-slate-400"> · {b.city}</span>}
+                  <span className="font-medium text-gray-900">{b.name}</span>
+                  {b.city && <span className="text-[#64748B]"> · {b.city}</span>}
                 </span>
-                <span className="font-mono text-xs text-slate-400">{b.code}</span>
+                <span className="font-mono text-xs text-[#64748B]">{b.code}</span>
               </li>
             ))}
           </ul>

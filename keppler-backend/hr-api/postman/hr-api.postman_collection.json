@@ -1,0 +1,1129 @@
+{
+ "info": {
+  "name": "HospAI HR API smoke",
+  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+ },
+ "item": [
+  {
+   "name": "Health",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/health",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "health"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"healthy\", () => pm.expect(pm.response.json().status).to.eql(\"ok\"));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Login (auth-service)",
+   "request": {
+    "method": "POST",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/auth/login",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "auth",
+      "login"
+     ],
+     "query": []
+    },
+    "body": {
+     "mode": "raw",
+     "raw": "{\"username\": \"{{user}}\", \"password\": \"{{password}}\"}"
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"logged in\", () => pm.response.to.have.status(200));",
+       "pm.environment.set(\"csrf\", pm.cookies.get(\"csrf_token\") || \"\");"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Employees list",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/employees?page_size=5",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "employees"
+     ],
+     "query": [
+      {
+       "key": "page_size",
+       "value": "5"
+      }
+     ]
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"paged\", () => { pm.response.to.have.status(200); pm.expect(pm.response.json()).to.have.keys(\"items\",\"total\",\"page\",\"page_size\"); });"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Create department",
+   "request": {
+    "method": "POST",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/departments",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "departments"
+     ],
+     "query": []
+    },
+    "body": {
+     "mode": "raw",
+     "raw": "{\"code\": \"NM{{$randomInt}}\", \"name\": \"Newman test ward\"}"
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"created\", () => pm.response.to.have.status(201));",
+       "pm.environment.set(\"dept\", pm.response.json().id);"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Update department",
+   "request": {
+    "method": "PATCH",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/departments/{{dept}}",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "departments",
+      "{{dept}}"
+     ],
+     "query": []
+    },
+    "body": {
+     "mode": "raw",
+     "raw": "{\"name\": \"Newman ward (renamed)\"}"
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"renamed\", () => pm.expect(pm.response.json().name).to.eql(\"Newman ward (renamed)\"));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Delete department",
+   "request": {
+    "method": "DELETE",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/departments/{{dept}}",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "departments",
+      "{{dept}}"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"deleted\", () => pm.response.to.have.status(204));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Validation error shape",
+   "request": {
+    "method": "POST",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/employees",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "employees"
+     ],
+     "query": []
+    },
+    "body": {
+     "mode": "raw",
+     "raw": "{\"first_name\": \"\"}"
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"422 with fields\", () => { pm.response.to.have.status(422); pm.expect(pm.response.json().details.fields.length).to.be.above(0); });"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Forged CSRF rejected",
+   "request": {
+    "method": "POST",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "forged"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/departments",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "departments"
+     ],
+     "query": []
+    },
+    "body": {
+     "mode": "raw",
+     "raw": "{\"code\": \"X\", \"name\": \"X\"}"
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"403\", () => pm.response.to.have.status(403));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "HR dashboard",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/dashboard",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "dashboard"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"HR dashboard: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Live attendance",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/attendance/live",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "attendance",
+      "live"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Live attendance: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Daily attendance",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/attendance/daily",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "attendance",
+      "daily"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Daily attendance: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Shift templates",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/workforce/shifts",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "workforce",
+      "shifts"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Shift templates: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Coverage",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/workforce/coverage",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "workforce",
+      "coverage"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Coverage: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "On duty",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/workforce/on-duty",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "workforce",
+      "on-duty"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"On duty: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Leave types",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/leave/types",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "leave",
+      "types"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Leave types: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Approval inbox",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/approvals",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "approvals"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Approval inbox: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Workflows",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/workflows",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "workflows"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Workflows: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Payroll runs",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/payroll/runs",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "payroll",
+      "runs"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Payroll runs: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Statutory settings",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/payroll/statutory",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "payroll",
+      "statutory"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Statutory settings: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Requisitions",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/recruitment/requisitions",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "recruitment",
+      "requisitions"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Requisitions: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Training matrix",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/training/matrix",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "training",
+      "matrix"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Training matrix: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Review cycles",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/performance/cycles",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "performance",
+      "cycles"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Review cycles: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Compliance alerts",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/compliance/alerts",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "compliance",
+      "alerts"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Compliance alerts: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Grievances (scoped)",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/grievances",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "grievances"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Grievances (scoped): 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Report catalog",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/reports/hr",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "reports",
+      "hr"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Report catalog: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Headcount report",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/reports/hr/headcount",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "reports",
+      "hr",
+      "headcount"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Headcount report: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Command center",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/hr/command-center",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "hr",
+      "command-center"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"Command center: 200\", () => pm.response.to.have.status(200));"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "Self-service for unlinked admin",
+   "request": {
+    "method": "GET",
+    "header": [
+     {
+      "key": "Content-Type",
+      "value": "application/json"
+     },
+     {
+      "key": "X-CSRF-Token",
+      "value": "{{csrf}}"
+     }
+    ],
+    "url": {
+     "raw": "{{base}}/api/v1/me",
+     "host": [
+      "{{base}}"
+     ],
+     "path": [
+      "api",
+      "v1",
+      "me"
+     ],
+     "query": []
+    }
+   },
+   "event": [
+    {
+     "listen": "test",
+     "script": {
+      "exec": [
+       "pm.test(\"404 not linked\", () => pm.response.to.have.status(404));"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

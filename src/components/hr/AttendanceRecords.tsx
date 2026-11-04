@@ -68,21 +68,21 @@ export function DailyRegister({ canManage }: { canManage: boolean }) {
           <>
             <Table head={["Employee", "Department", "Shift", "In", "Out", "Worked", "Late", "Early", "OT", "Status"]}>
               {data.data.items.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(r.id)}>
+                <tr key={r.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => setOpen(r.id)}>
                   <td className="px-4 py-2">
-                    {r.employee_name} <span className="text-[11px] text-slate-400 font-mono">{r.employee_code}</span>
+                    <span className="font-semibold text-gray-900">{r.employee_name}</span> <span className="text-[11px] text-[#64748B] font-mono">{r.employee_code}</span>
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{r.department ?? "—"}</td>
+                  <td className="px-4 py-2 text-gray-700">{r.department ?? "—"}</td>
                   <td className="px-4 py-2">{r.shift_code ?? "—"}</td>
                   <td className="px-4 py-2 tabular-nums">{fmtTime(r.first_in)}</td>
                   <td className="px-4 py-2 tabular-nums">{fmtTime(r.last_out)}</td>
-                  <td className="px-4 py-2 tabular-nums">{minutes(r.worked_minutes)}</td>
-                  <td className={`px-4 py-2 tabular-nums ${r.late_minutes ? "text-amber-700" : "text-slate-400"}`}>{r.late_minutes ? `${r.late_minutes}m` : "—"}</td>
-                  <td className={`px-4 py-2 tabular-nums ${r.early_minutes ? "text-amber-700" : "text-slate-400"}`}>{r.early_minutes ? `${r.early_minutes}m` : "—"}</td>
-                  <td className="px-4 py-2 tabular-nums">{r.overtime_minutes ? minutes(r.overtime_minutes) : "—"}</td>
+                  <td className="px-4 py-2 tabular-nums font-mono">{minutes(r.worked_minutes)}</td>
+                  <td className={`px-4 py-2 tabular-nums font-mono ${r.late_minutes ? "text-amber-700 font-semibold" : "text-[#64748B]"}`}>{r.late_minutes ? `${r.late_minutes}m` : "—"}</td>
+                  <td className={`px-4 py-2 tabular-nums font-mono ${r.early_minutes ? "text-amber-700 font-semibold" : "text-[#64748B]"}`}>{r.early_minutes ? `${r.early_minutes}m` : "—"}</td>
+                  <td className="px-4 py-2 tabular-nums font-mono">{r.overtime_minutes ? minutes(r.overtime_minutes) : "—"}</td>
                   <td className="px-4 py-2">
                     <StatusBadge value={STATUS_BADGE[r.status] ?? "draft"} label={humanize(r.status)} />
-                    {r.locked && <span className="ml-1 text-[10px] text-slate-400">locked</span>}
+                    {r.locked && <span className="ml-1 text-[10px] text-[#64748B]">locked</span>}
                   </td>
                 </tr>
               ))}
@@ -110,32 +110,32 @@ function RecordDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <StatusBadge value={STATUS_BADGE[rec.data!.status] ?? "draft"} label={humanize(rec.data!.status)} /> · worked {minutes(rec.data!.worked_minutes)} from {rec.data!.punch_count} punches
           </p>
           <div>
-            <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Work sessions</h4>
+            <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-1">Work sessions</h4>
             {rec.data!.sessions.length ? (
               <ul className="space-y-1">
                 {rec.data!.sessions.map((s, i) => (
                   <li key={i}>
-                    {fmtTime(s.check_in)} → {s.check_out ? fmtTime(s.check_out) : <span className="text-rose-700">no check-out</span>} {s.check_out && <span className="text-slate-500">({minutes(s.minutes)})</span>}
+                    {fmtTime(s.check_in)} → {s.check_out ? fmtTime(s.check_out) : <span className="text-rose-700">no check-out</span>} {s.check_out && <span className="text-[#64748B]">({minutes(s.minutes)})</span>}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-slate-500">No punches</p>
+              <p className="text-[#64748B]">No punches</p>
             )}
           </div>
           {!!rec.data!.exceptions.length && (
             <div>
-              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Exceptions</h4>
+              <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-1">Exceptions</h4>
               <ul className="space-y-1">
                 {rec.data!.exceptions.map((x, i) => (
-                  <li key={i} className={x.status === "open" ? "text-amber-800" : "text-slate-500"}>
+                  <li key={i} className={x.status === "open" ? "text-amber-800" : "text-[#64748B]"}>
                     {humanize(x.kind)} — {x.detail}
                   </li>
                 ))}
               </ul>
             </div>
           )}
-          <p className="text-[11px] text-slate-500">Sessions are paired from the raw device punches; the punches themselves are never edited. Corrections add a manual punch once approved.</p>
+          <p className="text-[11px] text-[#64748B]">Sessions are paired from the raw device punches; the punches themselves are never edited. Corrections add a manual punch once approved.</p>
         </div>
       )}
     </Drawer>
@@ -146,7 +146,7 @@ export function MonthlyCalendar({ employeeId }: { employeeId?: string }) {
   const [q, setQ] = useState("")
   const [emp, setEmp] = useState<string | undefined>(employeeId)
   const [month, setMonth] = useState(() => today().slice(0, 7))
-  const people = useHr(() => (!employeeId && q.length >= 2 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, page_size: 8 }) : Promise.resolve(null)), [q])
+  const people = useHr(() => (!employeeId && q.length >= 1 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, page_size: 8 }) : Promise.resolve(null)), [q])
   const data = useHr(() => (emp ? hr.get<any>(`/api/v1/attendance/monthly/${emp}`, { year: Number(month.slice(0, 4)), month: Number(month.slice(5, 7)) }) : Promise.resolve(null)), [emp, month])
   const first = new Date(`${month}-01T00:00:00`)
   const lead = (first.getDay() + 6) % 7
@@ -159,9 +159,9 @@ export function MonthlyCalendar({ employeeId }: { employeeId?: string }) {
     >
       {!employeeId && (
         <div className="max-w-sm mb-3">
-          <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee" />
+          <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee (instant)" />
           {people.data?.items.map((p) => (
-            <button key={p.id} onClick={() => { setEmp(p.id); setQ("") }} className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 rounded-[6px]">
+            <button key={p.id} onClick={() => { setEmp(p.id); setQ("") }} className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 rounded transition-colors cursor-pointer">
               {p.full_name}
             </button>
           ))}
@@ -175,7 +175,7 @@ export function MonthlyCalendar({ employeeId }: { employeeId?: string }) {
         <>
           <div className="grid grid-cols-7 gap-1 text-[11px]">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <div key={d} className="text-center text-slate-400 py-1">
+              <div key={d} className="text-center text-[#64748B] font-semibold py-1">
                 {d}
               </div>
             ))}
@@ -186,12 +186,12 @@ export function MonthlyCalendar({ employeeId }: { employeeId?: string }) {
               const d = `${month}-${String(i + 1).padStart(2, "0")}`
               const r = byDate[d]
               return (
-                <div key={d} className={`min-h-[56px] rounded-[6px] border p-1 ${r ? "border-slate-200" : "border-dashed border-slate-100"}`}>
-                  <div className="text-slate-400">{i + 1}</div>
+                <div key={d} className={`min-h-[56px] rounded border p-1 ${r ? "border-[#DDE2EC] bg-white shadow-2xs" : "border-dashed border-[#EEF1F6] bg-[#F8FAFC]"}`}>
+                  <div className="text-[#64748B] font-medium">{i + 1}</div>
                   {r && (
                     <>
                       <StatusBadge value={STATUS_BADGE[r.status] ?? "draft"} label={humanize(r.status)} />
-                      {r.worked_minutes > 0 && <div className="text-slate-500 mt-0.5">{minutes(r.worked_minutes)}</div>}
+                      {r.worked_minutes > 0 && <div className="text-[#64748B] mt-0.5 font-mono">{minutes(r.worked_minutes)}</div>}
                     </>
                   )}
                 </div>
@@ -199,7 +199,7 @@ export function MonthlyCalendar({ employeeId }: { employeeId?: string }) {
             })}
           </div>
           {data.data && (
-            <p className="text-xs text-slate-600 mt-3">
+            <p className="text-xs text-gray-700 mt-3 font-medium">
               Present {data.data.totals.present} · Half day {data.data.totals.half_day} · Absent {data.data.totals.absent} · Leave {data.data.totals.on_leave} · Late days {data.data.totals.late_days} · Overtime {minutes(data.data.totals.overtime_minutes)}
             </p>
           )}
@@ -230,9 +230,9 @@ export function Exceptions({ canManage }: { canManage: boolean }) {
             {data.data.items.map((x) => (
               <tr key={x.id}>
                 <td className="px-4 py-2 whitespace-nowrap">{fmtDate(x.work_date)}</td>
-                <td className="px-4 py-2">{x.employee_name}</td>
+                <td className="px-4 py-2 font-medium">{x.employee_name}</td>
                 <td className="px-4 py-2">{humanize(x.kind)}</td>
-                <td className="px-4 py-2 text-slate-600">{x.detail}</td>
+                <td className="px-4 py-2 text-gray-700">{x.detail}</td>
                 <td className="px-4 py-2 text-right">{canManage && x.status === "open" && <Btn variant="ghost" busy={busy === x.id} onClick={() => dismiss(x)}>Dismiss</Btn>}</td>
               </tr>
             ))}
@@ -249,7 +249,7 @@ export function Corrections() {
   const data = useHr(() => hr.get<any[]>("/api/v1/attendance/corrections", { status: status || undefined }), [status])
   return (
     <Panel title="Attendance corrections" actions={<select className={filterCls} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">All</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>}>
-      <p className="text-[11px] text-slate-500 mb-2">Staff request corrections from My HR. Approval (under Approvals) adds a manual punch to the ledger and recalculates the day.</p>
+      <p className="text-[11px] text-[#64748B] mb-2">Staff request corrections from My HR. Approval (under Approvals) adds a manual punch to the ledger and recalculates the day.</p>
       {data.loading && !data.data ? (
         <Loading />
       ) : !data.data?.length ? (
@@ -258,10 +258,10 @@ export function Corrections() {
         <Table head={["Date", "Employee", "Punches to add", "Reason", "Status"]}>
           {data.data.map((c) => (
             <tr key={c.id}>
-              <td className="px-4 py-2">{fmtDate(c.work_date)}</td>
-              <td className="px-4 py-2">{c.employee_name}</td>
-              <td className="px-4 py-2">{c.punch_times.map((t: string) => fmtTime(t)).join(", ")}</td>
-              <td className="px-4 py-2 text-slate-600 max-w-xs truncate">{c.reason}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{fmtDate(c.work_date)}</td>
+              <td className="px-4 py-2 font-medium">{c.employee_name}</td>
+              <td className="px-4 py-2 font-mono text-xs">{c.punch_times.map((t: string) => fmtTime(t)).join(", ")}</td>
+              <td className="px-4 py-2 text-gray-700 max-w-xs truncate">{c.reason}</td>
               <td className="px-4 py-2">
                 <StatusBadge value={c.status === "approved" ? "success" : c.status} label={c.status} />
               </td>
@@ -279,7 +279,7 @@ export function Overtime({ canManage }: { canManage: boolean }) {
   const [busy, run] = useRun()
   return (
     <Panel title="Overtime" actions={<select className={filterCls} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">All</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>}>
-      <p className="text-[11px] text-slate-500 mb-2">Overtime is detected from attendance against the shift. Only approved minutes are paid.</p>
+      <p className="text-[11px] text-[#64748B] mb-2">Overtime is detected from attendance against the shift. Only approved minutes are paid.</p>
       {data.loading && !data.data ? (
         <Loading />
       ) : !data.data?.length ? (

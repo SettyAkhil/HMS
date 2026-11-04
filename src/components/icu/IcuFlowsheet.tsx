@@ -14,11 +14,8 @@ import {
   type ExportGroup,
 } from "./flowsheetExport"
 import {
-  ensureMultiDaySeedData,
   getPatientStayDays,
   getCurrentDateTimeFormatted,
-  generateDeepakDay1FullRecord,
-  generateSeedRecord,
 } from "./icuSeedData"
 
 // Renders the ICU daily flowsheet described by flowsheetSchema.ts: one record
@@ -55,54 +52,22 @@ const storageKey = (patientId: string, date: string) =>
 // (icu_flowsheets, surfaced on the patient journey). localStorage is kept as a
 // write-through cache so a nurse mid-chart never loses entries to a dropped
 // network, and so the page still renders offline.
+// No demo data is ever generated: a day with nothing charted is an empty
+// chart. `totalDays` / `isManualCharting` are kept for call-site compatibility.
 export function loadRecord(
   patientId: string,
   date: string,
-  totalDays: number = 10,
-  isManualCharting: boolean = false,
+  _totalDays: number = 10,
+  _isManualCharting: boolean = true,
 ): FlowsheetRecord {
   try {
     const raw = localStorage.getItem(storageKey(patientId, date))
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      // If nurse explicitly clicked 'Clear Day', keep it empty
-      if (parsed.isCleared) {
-        return { ...emptyRecord(patientId, date), ...parsed }
-      }
-      // Check if this record actually contains filled clinical data
-      const hasClinicalData =
-        Object.keys(parsed.fields ?? {}).length > 2 ||
-        Object.keys(parsed.hourly?.observations ?? {}).length > 0 ||
-        Object.keys(parsed.scales?.gcs ?? {}).length > 0
-      if (hasClinicalData) {
-        return { ...emptyRecord(patientId, date), ...parsed }
-      }
-    }
-
-    // 1. For Deepak Patel: generate complete Day 1 record across all 7 tabs
-    if (patientId === "100239" || patientId.toLowerCase().includes("deepak")) {
-      const deepakRec = generateDeepakDay1FullRecord(date)
-      saveRecord(deepakRec)
-      return deepakRec
-    }
-
-    // 2. For newly admitted or manual charting patients: start with a clean empty flowsheet!
-    if (isManualCharting) {
-      return emptyRecord(patientId, date)
-    }
-
-    // 3. For preset demo patients only: generate realistic full stay data
-    const stayDays = getPatientStayDays(totalDays)
-    const match = stayDays.find((sd) => sd.dateStr === date)
-    const dayNumber = match ? match.dayNumber : 1
-    const seed = generateSeedRecord(patientId, dayNumber, date, totalDays)
-    saveRecord(seed)
-    return seed
+    if (raw) return { ...emptyRecord(patientId, date), ...JSON.parse(raw), patientId, date }
   } catch {}
   return emptyRecord(patientId, date)
 }
 
-function saveRecord(rec: FlowsheetRecord) {
+export function saveRecord(rec: FlowsheetRecord) {
   try {
     localStorage.setItem(
       storageKey(rec.patientId, rec.date),
@@ -173,6 +138,74 @@ export function onFlowsheetSync(
     return () => ch.close()
   } catch {
     return () => {}
+  }
+}
+
+/** Number of filled entries in a chart day (what the day index stores). */
+export function countEntries(rec: FlowsheetRecord): number {
+  let n = Object.values(rec.fields ?? {}).filter(Boolean).length
+  for (const group of [rec.grids, rec.hourly, rec.scales])
+    for (const cells of Object.values(group ?? {}))
+      n += Object.values(cells ?? {}).filter(Boolean).length
+  for (const rows of Object.values(rec.tables ?? {}))
+    for (const row of rows ?? []) n += Object.values(row).filter(Boolean).length
+  return n
+}
+
+/**
+ * Pull one chart day from the clinical record into the local cache. Returns
+ * the server copy when it has one, else the cached copy (offline / unsaved).
+ */
+export async function syncRecordFromServer(
+  patientId: string,
+  date: string,
+): Promise<FlowsheetRecord> {
+  try {
+    const remote = await fetchRecord(patientId, date)
+    if (remote) {
+      const local = loadRecord(patientId, date)
+      // Keep a newer local edit that has not reached the server yet.
+      if (!local.updatedAt || (remote.updatedAt || "") >= local.updatedAt) {
+        saveRecord(remote)
+        return remote
+      }
+      return local
+    }
+  } catch {}
+  return loadRecord(patientId, date)
+}
+
+/**
+ * Append rows to a table section of one chart day (e.g. a drip or a
+ * medication order onto the drug chart) and save it the same way the
+ * flowsheet does: local cache, clinical record, then a cross-tab broadcast.
+ */
+export async function appendChartRows(
+  patientId: string,
+  date: string,
+  tableId: string,
+  rows: Record<string, string>[],
+): Promise<{ saved: boolean ;record: FlowsheetRecord }> {
+  const base = await syncRecordFromServer(patientId, date)
+  const record: FlowsheetRecord = {
+    ...base,
+    tables: {
+      ...base.tables,
+      [tableId]: [
+        ...rows,
+        ...(base.tables[tableId] ?? []).filter((r) => Object.values(r).some(Boolean)),
+      ],
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveRecord(record)
+  broadcastSave(patientId, date)
+  try {
+    await pushRecord(record, countEntries(record))
+    broadcastSave(patientId, date)
+    return { saved: true, record }
+  } catch {
+    return { saved: false, record }
   }
 }
 
@@ -423,12 +456,6 @@ export default function IcuFlowsheet({
   const [date, setDate] = useState(activeDate)
   const [tab, setTab] = useState(TABS[0].id)
 
-  // Ensure multi-day seed data is only populated for demo patients, never for manual entry patients
-  useEffect(() => {
-    if (!isManualCharting) {
-      ensureMultiDaySeedData(patientId, totalDays)
-    }
-  }, [patientId, totalDays, isManualCharting])
   const [rec, setRec] = useState<FlowsheetRecord>(() =>
     loadRecord(patientId, activeDate, totalDays, isManualCharting),
   )
@@ -450,10 +477,7 @@ export default function IcuFlowsheet({
     try {
       const remote = await fetchRecord(pid, day)
       if (remote) {
-        const hasRemoteData =
-          Object.keys(remote.fields ?? {}).length > 2 ||
-          Object.keys(remote.hourly?.observations ?? {}).length > 0 ||
-          Object.keys(remote.scales?.gcs ?? {}).length > 0
+        const hasRemoteData = countEntries(remote) > 0
         // Don't clobber edits the nurse made while the fetch was in flight, and don't overwrite with empty remote data
         if (!dirty.current && hasRemoteData) {
           setRec(remote)
@@ -498,8 +522,8 @@ export default function IcuFlowsheet({
       onFlowsheetSync((m) => {
         if (m.patientId !== patientId || m.date !== date || dirty.current)
           return
-        fetchRecord(patientId, date)
-          .then((r) => r && setRec(r))
+        syncRecordFromServer(patientId, date)
+          .then((r) => setRec(r))
           .catch(() => {})
       }),
     [patientId, date],

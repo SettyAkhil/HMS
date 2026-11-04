@@ -290,7 +290,7 @@ export default function RadiologyReportingView({
         if (
           found.normalizedReportStatus === "Correction Required" ||
           found.normalizedReportStatus === "Needs Correction" ||
-          found.reportStatus === "Correction Required"
+          (found.reportStatus as string) === "Correction Required"
         ) {
           setStatusTab("correction")
         } else if (found.normalizedReportStatus === "Draft") {
@@ -353,10 +353,10 @@ export default function RadiologyReportingView({
         s.normalizedReportStatus === "Submitted for Review" ||
         s.normalizedReportStatus === "Needs Correction" ||
         s.normalizedReportStatus === "Correction Required" ||
-        s.reportStatus === "Draft" ||
-        s.reportStatus === "Submitted for Review" ||
-        s.reportStatus === "Needs Correction" ||
-        s.reportStatus === "Correction Required" ||
+        (s.reportStatus as string) === "Draft" ||
+        (s.reportStatus as string) === "Submitted for Review" ||
+        (s.reportStatus as string) === "Needs Correction" ||
+        (s.reportStatus as string) === "Correction Required" ||
         (s as any).workflowStatus === "DRAFT_SAVED" ||
         (s as any).workflowStatus === "UNDER_REVIEW" ||
         (s as any).workflowStatus === "CORRECTION_REQUIRED" ||
@@ -819,8 +819,8 @@ const templateContentCache = new Map<string, any>()
       // 1. Fill default values from template sections
       if (tplContent?.sectionValues) {
         Object.entries(tplContent.sectionValues).forEach(([k, v]) => {
-          if (v && !isUnwantedTicketRoutingContent(v)) {
-            initialSectionValues[k] = v
+          if (v && !isUnwantedTicketRoutingContent(String(v))) {
+            initialSectionValues[k] = String(v)
           }
         })
       }
@@ -1207,7 +1207,7 @@ const templateContentCache = new Map<string, any>()
       const remainingActive = filteredStudies.filter(
         (s) => s.id !== activeStudy.id && getReportingCategory(s) !== "finalized"
       )
-      if (statusTab !== "finalized" && remainingActive.length > 0) {
+      if ((statusTab as string) !== "finalized" && remainingActive.length > 0) {
         setActiveStudyId(remainingActive[0].id)
       }
     } catch (err: any) {
@@ -2147,7 +2147,7 @@ const templateContentCache = new Map<string, any>()
 
                   {/* Submitted for Review / Under Review Banner */}
                   {(activeStudy.normalizedReportStatus === "Submitted for Review" ||
-                    activeStudy.normalizedReportStatus === "Under Review") && (
+                    (activeStudy.normalizedReportStatus as string) === "Under Review") && (
                     <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-2.5 text-[11.5px] text-blue-900 shadow-2xs">
                       <div className="flex items-center gap-2">
                         <CheckSquare className="w-4 h-4 text-blue-600 shrink-0" />
@@ -2781,7 +2781,7 @@ const templateContentCache = new Map<string, any>()
                         {/* Return for Correction button (when radiologist is reviewing) */}
                         {isAuthorizedRadiologist &&
                           (activeStudy.normalizedReportStatus === "Submitted for Review" ||
-                            activeStudy.normalizedReportStatus === "Under Review") && (
+                            (activeStudy.normalizedReportStatus as string) === "Under Review") && (
                             <button
                               type="button"
                               onClick={() => setShowCorrectionModal(true)}

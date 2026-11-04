@@ -261,7 +261,7 @@ export default function NurseStation({
     notifyPatientCalledToNurse(enc, nurseName)
     const token = enc.queueToken ? `#${enc.queueToken}` : enc.opNumber || "OP"
     setCallAlert({
-      message: `Token ${token} - ${enc.patientName} called to Nurse Station! SMS & WhatsApp dispatched.`,
+      message: `Token ${token} - ${enc.patientName} called to Nurse Station. Patient message being sent (status in Patient Messages).`,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     })
     setTimeout(() => {

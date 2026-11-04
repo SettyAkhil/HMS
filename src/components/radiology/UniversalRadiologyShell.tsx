@@ -168,7 +168,7 @@ export default function UniversalRadiologyShell({
         Boolean(s.sentToReporting) ||
         s.status === "Sent for Reporting" ||
         (s as any).workflowStatus === "SENT_TO_REPORTING" ||
-        s.reportStatus === "Awaiting Report" ||
+        (s.reportStatus as string) === "Awaiting Report" ||
         (s as any).workflowStatus === "AWAITING_REPORT"
 
       const isUnderReporting =
@@ -176,10 +176,10 @@ export default function UniversalRadiologyShell({
         s.normalizedReportStatus === "Submitted for Review" ||
         s.normalizedReportStatus === "Needs Correction" ||
         s.normalizedReportStatus === "Correction Required" ||
-        s.reportStatus === "Draft" ||
-        s.reportStatus === "Submitted for Review" ||
-        s.reportStatus === "Needs Correction" ||
-        s.reportStatus === "Correction Required" ||
+        (s.reportStatus as string) === "Draft" ||
+        (s.reportStatus as string) === "Submitted for Review" ||
+        (s.reportStatus as string) === "Needs Correction" ||
+        (s.reportStatus as string) === "Correction Required" ||
         (s as any).workflowStatus === "DRAFT_SAVED" ||
         (s as any).workflowStatus === "UNDER_REVIEW" ||
         (s as any).workflowStatus === "CORRECTION_REQUIRED"

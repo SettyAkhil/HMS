@@ -205,7 +205,7 @@ export default function ErRegistrationForm({
         }
       }
 
-      const vData = await apiFetch<{ visit_id: number }>("/api/er/visits", {
+      const vData = await apiFetch<any>("/api/er/visits", {
         method: "POST",
         body: JSON.stringify({
           patient_id: patientId,
@@ -221,7 +221,7 @@ export default function ErRegistrationForm({
           arrival_at: hospitalArrivalTime || undefined,
         }),
       })
-      const visitId = vData.visit_id
+      const visitId = vData?.id || vData?.visit_id || vData?.visit?.id
 
       await apiFetch(`/api/er/visits/${visitId}/complaints`, {
         method: "POST",

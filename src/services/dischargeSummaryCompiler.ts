@@ -455,7 +455,7 @@ type BackendPatientRow = {
 
 export async function searchBackendPatients(query: string): Promise<SummaryPatientHit[]> {
   const q = query.trim()
-  if (q.length < 2) return []
+  if (!q) return []
   const data = await backendGet<{ patients?: BackendPatientRow[] }>(`/api/patients?q=${encodeURIComponent(q)}`)
   return (data?.patients || []).slice(0, 20).map((p) => {
     const status: PatientStatus = p.active_bed ? "Admitted" : p.active_er_visit_no ? "Emergency" : "Outpatient"

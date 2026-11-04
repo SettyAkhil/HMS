@@ -2,6 +2,7 @@ import { API_BASE } from "../lib/constants"
 import { getCsrfToken, getHospitalCode } from "../lib/api"
 import type { DBOPEncounter } from "./db"
 import {
+  getOutbox,
   getPatientMessages,
   pushNotification,
   updateNotifications,
@@ -77,11 +78,11 @@ export const MESSAGE_KINDS: Record<MessageKind, MessageKindDef> = {
     label: "OP registration",
     description: "Sent when a patient is registered or re-registered at the OP desk.",
     group: "Visit updates",
-    defaultChannels: ["sms"],
+    defaultChannels: ["sms", "whatsapp"],
     automatic: true,
     document: false,
     template:
-      "Dear {name}, you are registered at {hospital}. UMR {umr}, OP No. {opNumber}. OP timings: {opHours}. Please wait to be called. Helpline {helpline}.",
+      "Dear {name}, you are registered at {hospital}. UMR {umr}, OP No. {opNumber}, Department {dept}. OP timings: {opHours}. Please wait to be called. Helpline {helpline}.",
     variables: ["umr", "opNumber", "dept"],
   },
   op_nurse_call: {
@@ -673,13 +674,15 @@ export async function sendPatientMessage(req: {
  * first sign the server is still unreachable rather than hammering it once per
  * message.
  */
-export async function retryQueuedMessages(): Promise<{
+export async function retryQueuedMessages(opts: { maxAgeMs?: number } = {}): Promise<{
   sent: number
   failed: number
   queued: number
 }> {
+  const cutoff = opts.maxAgeMs ? Date.now() - opts.maxAgeMs : null
   const queued = getPatientMessages()
     .filter((n) => n.status === "queued")
+    .filter((n) => cutoff == null || new Date(n.createdAt).getTime() >= cutoff)
     .reverse()
   let sent = 0
   let failed = 0
@@ -780,24 +783,48 @@ export async function refreshDeliveryStatus(): Promise<boolean> {
  * forget: the clinical action that triggered it (a booking, a call-in) must not
  * wait on, or fail because of, a text message.
  */
-function autoSend(kind: MessageKind, patient: PatientRef, vars: TemplateVars) {
+function autoSend(kind: MessageKind, patient: PatientRef, vars: TemplateVars, extraLine?: string | null) {
   const rule = ruleFor(kind)
   if (!rule.auto || rule.channels.length === 0) return Promise.resolve(null)
-  const message = renderTemplate(rule.template || MESSAGE_KINDS[kind].template, {
+  let message = renderTemplate(rule.template || MESSAGE_KINDS[kind].template, {
     name: patient.name,
     ...vars,
   })
+  if (extraLine) message = `${message}\n${extraLine}`
+  // Never the same message twice for the same visit (a re-render, a second
+  // tab, a retried save): the outbox already holds it.
+  if (
+    patient.encounterId &&
+    getOutbox().some((n) => n.encounterId === patient.encounterId && n.kind === kind && n.message === message)
+  ) {
+    return Promise.resolve(null)
+  }
   return sendPatientMessage({ patient, kind, channels: rule.channels, message }).catch(() => {
     /* recorded in the outbox already */
     return null
   })
 }
 
+/**
+ * The patient's own no-login record link (the same one their card's QR holds),
+ * or null if the server could not issue it. Loaded lazily: patientRecord pulls
+ * in most of the app's stores.
+ */
+async function recordLinkLine(umr: string, details: { name: string ;phone?: string | null }): Promise<string | null> {
+  try {
+    const { fetchCardToken, publicCardUrl } = await import("../components/patientRecord/patientRecord")
+    const token = await fetchCardToken(umr, false, { name: details.name, phone: details.phone ?? null })
+    return token ? `Your health record: ${publicCardUrl(token)}` : null
+  } catch {
+    return null
+  }
+}
+
 function today(): string {
   return new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
 }
 
-export function notifyAppointmentBooked(booked: {
+export async function notifyAppointmentBooked(booked: {
   encounterId: string
   name: string
   umr: string
@@ -808,6 +835,7 @@ export function notifyAppointmentBooked(booked: {
   token: string
   time: string
 }) {
+  const link = booked.umr ? await recordLinkLine(booked.umr, { name: booked.name, phone: booked.phone }) : null
   return autoSend(
     "appointment_booked",
     { name: booked.name, phone: booked.phone, id: booked.umr, encounterId: booked.encounterId },
@@ -817,14 +845,18 @@ export function notifyAppointmentBooked(booked: {
       date: today(),
       time: booked.time,
       token: booked.token,
-      room: booked.room,
+      // Bookings store "Room 103"; the template already says "Room {room}".
+      room: (booked.room || "").replace(/^\s*room\s+/i, "") || null,
     },
+    link,
   )
 }
 
 /** A new or returning patient has been registered for OP. */
-export function notifyOpRegistered(encounter: DBOPEncounter) {
-  autoSend(
+export async function notifyOpRegistered(encounter: DBOPEncounter) {
+  const link = await recordLinkLine(encounter.umr, { name: encounter.patientName, phone: encounter.phone })
+  const dept = encounter.dept && !/awaiting/i.test(encounter.dept) ? encounter.dept : null
+  return autoSend(
     "op_registered",
     {
       name: encounter.patientName,
@@ -832,8 +864,38 @@ export function notifyOpRegistered(encounter: DBOPEncounter) {
       id: encounter.umr,
       encounterId: encounter.id,
     },
-    { umr: encounter.umr, opNumber: encounter.opNumber, dept: encounter.dept },
+    { umr: encounter.umr, opNumber: encounter.opNumber, dept },
+    link,
   )
+}
+
+// ── Automatic retry ──────────────────────────────────────────────────────────
+// A message that could not go (messaging not set up yet, server down) waits in
+// the outbox as "queued". Every 2 minutes, if any recent one is waiting and the
+// server can now send, send it -- so connecting the SMS/WhatsApp provider
+// delivers what reception queued in the meantime. Only the last 6 hours: an
+// old "please wait to be called" is worse than none (older ones stay in
+// Patient Messages for the desk to resend or drop).
+const AUTO_RETRY_EVERY_MS = 2 * 60_000
+const AUTO_RETRY_MAX_AGE_MS = 6 * 60 * 60_000
+if (typeof window !== "undefined" && !(window as any).__hospaiMessagingRetry) {
+  ;(window as any).__hospaiMessagingRetry = window.setInterval(async () => {
+    const cutoff = Date.now() - AUTO_RETRY_MAX_AGE_MS
+    const waiting = getPatientMessages().some((n) => n.status === "queued" && new Date(n.createdAt).getTime() >= cutoff)
+    if (!waiting) return
+    const status = await getMessagingStatus()
+    if (!status.reachable || (!status.sms && !status.whatsapp)) return
+    await retryQueuedMessages({ maxAgeMs: AUTO_RETRY_MAX_AGE_MS }).catch(() => null)
+  }, AUTO_RETRY_EVERY_MS)
+}
+
+// Every OP registration, from any desk (Registration, OP queue, revisit), is
+// announced by db once its server write has settled -- message the patient then.
+if (typeof window !== "undefined") {
+  window.addEventListener("hms:op-registered", (e) => {
+    const encounter = (e as CustomEvent<DBOPEncounter>).detail
+    if (encounter?.id) void notifyOpRegistered(encounter)
+  })
 }
 
 /**

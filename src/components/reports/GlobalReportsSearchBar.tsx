@@ -58,10 +58,10 @@ export const GlobalReportsSearchBar: React.FC<GlobalReportsSearchBarProps> = ({
     ...results.staff,
   ]
 
-  // Debounced Search Execution (180ms)
+  // Debounced Search Execution (100ms)
   useEffect(() => {
     const trimmed = query.trim()
-    if (trimmed.length < 2) {
+    if (!trimmed) {
       setResults({ patients: [], doctors: [], staff: [], total: 0 })
       setIsLoading(false)
       setSelectedIndex(-1)

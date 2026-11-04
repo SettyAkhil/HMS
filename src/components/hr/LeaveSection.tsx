@@ -59,7 +59,7 @@ function Requests({ canEdit }: { canEdit: boolean }) {
         </div>
       }
     >
-      <p className="text-[11px] text-slate-500 mb-2">Approve or reject from Approvals; each request follows the leave approval rule (manager, then HR for longer leave).</p>
+      <p className="text-[11px] text-[#64748B] mb-2">Approve or reject from Approvals; each request follows the leave approval rule (manager, then HR for longer leave).</p>
       {list.loading && !list.data ? (
         <Loading />
       ) : list.error ? (
@@ -71,16 +71,16 @@ function Requests({ canEdit }: { canEdit: boolean }) {
           {list.data.map((r) => (
             <tr key={r.id}>
               <td className="px-4 py-2">
-                {r.employee_name} <span className="text-[11px] text-slate-400 font-mono">{r.employee_code}</span>
+                <span className="font-semibold text-gray-900">{r.employee_name}</span> <span className="text-[11px] text-[#64748B] font-mono">{r.employee_code}</span>
               </td>
-              <td className="px-4 py-2">{r.leave_type}</td>
+              <td className="px-4 py-2 font-medium">{r.leave_type}</td>
               <td className="px-4 py-2 whitespace-nowrap">
                 {fmtDate(r.start_date)}
                 {r.end_date !== r.start_date && ` – ${fmtDate(r.end_date)}`}
-                {r.half_day && <span className="text-[11px] text-slate-400"> ({r.half_day} half)</span>}
+                {r.half_day && <span className="text-[11px] text-[#64748B]"> ({r.half_day} half)</span>}
               </td>
-              <td className="px-4 py-2 tabular-nums">{Number(r.days)}</td>
-              <td className="px-4 py-2 text-slate-600 max-w-xs truncate" title={r.reason}>
+              <td className="px-4 py-2 tabular-nums font-mono">{Number(r.days)}</td>
+              <td className="px-4 py-2 text-gray-700 max-w-xs truncate" title={r.reason}>
                 {r.reason}
               </td>
               <td className="px-4 py-2">
@@ -113,7 +113,7 @@ export function ApplyLeave({ onClose, onDone, onBehalf }: { onClose: () => void;
   const types = useHr(() => hr.get<LeaveType[]>("/api/v1/hr/leave/types"), [])
   const [f, setF] = useState({ employee_id: "", leave_type_id: "", start_date: "", end_date: "", half_day: "", reason: "", emergency: false })
   const [q, setQ] = useState("")
-  const people = useHr(() => (onBehalf && q.length >= 2 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, status: "active", page_size: 8 }) : Promise.resolve(null)), [q])
+  const people = useHr(() => (onBehalf && q.length >= 1 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, status: "active", page_size: 8 }) : Promise.resolve(null)), [q])
   const [busy, run] = useRun()
   const type = types.data?.find((t) => t.id === f.leave_type_id)
   const submit = () =>
@@ -149,11 +149,11 @@ export function ApplyLeave({ onClose, onDone, onBehalf }: { onClose: () => void;
         {onBehalf && (
           <>
             <Field label="Employee" required>
-              <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search active staff" />
+              <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search active staff (instant)" />
             </Field>
             {people.data?.items.map((p) => (
-              <button key={p.id} onClick={() => setF({ ...f, employee_id: p.id })} className={`block w-full text-left px-3 py-1.5 text-sm rounded-[6px] ${f.employee_id === p.id ? "bg-teal-50" : "hover:bg-slate-50"}`}>
-                {p.full_name} <span className="text-[11px] text-slate-400">{p.employee_code}</span>
+              <button key={p.id} onClick={() => setF({ ...f, employee_id: p.id })} className={`block w-full text-left px-3 py-1.5 text-sm rounded cursor-pointer transition-colors ${f.employee_id === p.id ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+                <span className="font-semibold text-gray-900">{p.full_name}</span> <span className="text-[11px] text-[#64748B] font-mono">{p.employee_code}</span>
               </button>
             ))}
           </>
@@ -193,7 +193,7 @@ export function ApplyLeave({ onClose, onDone, onBehalf }: { onClose: () => void;
           <input type="checkbox" checked={f.emergency} onChange={(e) => setF({ ...f, emergency: e.target.checked })} /> Emergency leave
         </label>
         {type?.document_required_after_days !== null && type?.document_required_after_days !== undefined && (
-          <p className="text-[11px] text-slate-500">A supporting document is needed beyond {type.document_required_after_days} days; upload it under Documents first.</p>
+          <p className="text-[11px] text-[#64748B]">A supporting document is needed beyond {type.document_required_after_days} days; upload it under Documents first.</p>
         )}
       </div>
     </Drawer>
@@ -235,9 +235,9 @@ function Calendar() {
           <table className="text-[11px]">
             <thead>
               <tr>
-                <th className="sticky left-0 bg-white px-4 py-1 text-left font-medium text-slate-500 min-w-[160px]">Employee</th>
+                <th className="sticky left-0 bg-white px-4 py-1 text-left font-medium text-[#64748B] min-w-[160px]">Employee</th>
                 {days.map((d) => (
-                  <th key={d} className="w-6 text-center font-normal text-slate-400">
+                  <th key={d} className="w-6 text-center font-normal text-[#64748B]">
                     {Number(d.slice(8))}
                   </th>
                 ))}
@@ -246,12 +246,12 @@ function Calendar() {
             <tbody>
               {people.map(([id, name]) => (
                 <tr key={id}>
-                  <td className="sticky left-0 bg-white px-4 py-1 text-sm text-slate-800 border-t border-slate-100">{name}</td>
+                  <td className="sticky left-0 bg-white px-4 py-1 text-sm text-gray-900 font-medium border-t border-[#EEF1F6]">{name}</td>
                   {days.map((d) => {
                     const r = list.data!.find((x) => x.employee_id === id && x.start_date <= d && x.end_date >= d)
                     return (
-                      <td key={d} className="border-t border-slate-100 p-0.5" title={r ? `${r.leave_type} (${r.status})` : ""}>
-                        {r && <div className={`h-4 rounded-sm ${r.status === "approved" ? "bg-[#007078]" : "bg-amber-300"}`} />}
+                      <td key={d} className="border-t border-[#EEF1F6] p-0.5" title={r ? `${r.leave_type} (${r.status})` : ""}>
+                        {r && <div className={`h-4 rounded-xs ${r.status === "approved" ? "bg-[#16A34A]" : "bg-amber-400"}`} />}
                       </td>
                     )
                   })}
@@ -259,8 +259,8 @@ function Calendar() {
               ))}
             </tbody>
           </table>
-          <p className="px-4 pt-2 text-[11px] text-slate-500">
-            <span className="inline-block w-3 h-3 bg-[#007078] rounded-sm align-middle" /> approved <span className="inline-block w-3 h-3 bg-amber-300 rounded-sm align-middle ml-3" /> pending
+          <p className="px-4 pt-2 text-[11px] text-[#64748B]">
+            <span className="inline-block w-3 h-3 bg-[#16A34A] rounded-xs align-middle" /> approved <span className="inline-block w-3 h-3 bg-amber-400 rounded-xs align-middle ml-3" /> pending
           </p>
         </div>
       )}
@@ -272,7 +272,7 @@ function Balances({ canEdit }: { canEdit: boolean }) {
   const [q, setQ] = useState("")
   const [emp, setEmp] = useState<EmployeeListItem | null>(null)
   const year = new Date().getFullYear()
-  const people = useHr(() => (q.length >= 2 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, page_size: 8 }) : Promise.resolve(null)), [q])
+  const people = useHr(() => (q.length >= 1 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, page_size: 8 }) : Promise.resolve(null)), [q])
   const bal = useHr(() => (emp ? hr.get<Balance[]>(`/api/v1/hr/leave/balances/${emp.id}`, { year }) : Promise.resolve(null)), [emp?.id])
   const [busy, run] = useRun()
   const adjust = (b: Balance) => {
@@ -289,10 +289,10 @@ function Balances({ canEdit }: { canEdit: boolean }) {
   return (
     <Panel title="Leave balances" actions={canEdit && <Btn busy={busy === "accrue"} onClick={accrue}>Run this month's accrual</Btn>}>
       <div className="max-w-sm mb-3">
-        <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee" />
+        <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee (instant)" />
         {people.data?.items.map((p) => (
-          <button key={p.id} onClick={() => { setEmp(p); setQ("") }} className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 rounded-[6px]">
-            {p.full_name} <span className="text-[11px] text-slate-400">{p.employee_code}</span>
+          <button key={p.id} onClick={() => { setEmp(p); setQ("") }} className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 rounded transition-colors cursor-pointer">
+            <span className="font-semibold text-gray-900">{p.full_name}</span> <span className="text-[11px] text-[#64748B] font-mono">{p.employee_code}</span>
           </button>
         ))}
       </div>

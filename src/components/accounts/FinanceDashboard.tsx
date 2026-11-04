@@ -1,36 +1,77 @@
+import { useState } from "react"
+import { RefreshCw, Landmark, ArrowRight, ShieldCheck, CheckCircle2 } from "lucide-react"
 import { accountsApi } from "../../services/accounts/client"
+import { syncOperationalFeed } from "../../services/accounts/operationalFeed"
 import type { AccountsSubTab } from "../AccountsModule"
-import { Card, Empty, Grid, Loaded, Money, PageHeader, Pill, Stat, Table, Td, Th, formatDate, formatINRShort, useApi } from "./ui"
+import {
+  Button, Card, Empty, ErrorNote, Grid, Loaded, Money, Notice, PageHeader, Pill, Stat, Table, Td, Th,
+  formatDate, formatINRShort, useAction, useApi,
+} from "./ui"
 
 const monthLabel = (ym: string) => {
+  if (!ym || !ym.includes("-")) return ym || "—"
   const [y, m] = ym.split("-").map(Number)
+  if (isNaN(y) || isNaN(m)) return ym
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
 }
 
-export default function FinanceDashboard({ onNavigate, feedRevision }: { onNavigate: (tab: AccountsSubTab) => void; feedRevision: number }) {
-  const state = useApi(() => accountsApi.overview(), [feedRevision])
+export default function FinanceDashboard({
+  onNavigate,
+  feedRevision,
+}: {
+  onNavigate: (tab: AccountsSubTab) => void
+  feedRevision: number
+}) {
+  const [internalRev, setInternalRev] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
+  const action = useAction()
+
+  const state = useApi(() => accountsApi.overview(), [feedRevision, internalRev])
+
+  const handleManualSync = () => {
+    action.run(
+      () => syncOperationalFeed(),
+      (res) => {
+        setNotice(
+          `Operational feed synced: ${res.posted} new entries posted, ${res.duplicate} duplicate(s) reconciled.`
+        )
+        setInternalRev((r) => r + 1)
+      }
+    )
+  }
 
   return (
     <div>
       <PageHeader
-        title="Finance overview"
-        subtitle="Live from the general ledger. Every figure is derived from posted journals; nothing here is stored separately."
+        title="Finance Overview"
+        subtitle="Live double-entry books derived from posted general ledger journals. Control accounts, receivables, payables, and service line revenues."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button size="sm" busy={action.busy} onClick={handleManualSync}>
+              <RefreshCw size={13} /> Sync Ledger
+            </Button>
+          </div>
+        }
       />
+
+      <Notice message={notice} onClose={() => setNotice(null)} />
+      <ErrorNote message={action.error} />
+
       <Loaded state={state}>
         {(o) => {
-          const revenueTotal = o.revenue_by_section.reduce((s, r) => s + r.amount, 0)
+          const revenueTotal = (o.revenue_by_section || []).reduce((s, r) => s + r.amount, 0)
           return (
             <div className="space-y-4">
               {(o.pending_approvals > 0 || o.posting_exceptions > 0) && (
                 <div className="flex flex-wrap gap-2">
                   {o.pending_approvals > 0 && (
-                    <button onClick={() => onNavigate("manager")} className="text-left">
+                    <button onClick={() => onNavigate("manager")} className="text-left cursor-pointer">
                       <Pill tone="amber">{o.pending_approvals} voucher(s) awaiting approval</Pill>
                     </button>
                   )}
                   {o.posting_exceptions > 0 && (
-                    <button onClick={() => onNavigate("audit")} className="text-left">
-                      <Pill tone="red">{o.posting_exceptions} operational entr{o.posting_exceptions === 1 ? "y" : "ies"} could not post</Pill>
+                    <button onClick={() => onNavigate("audit")} className="text-left cursor-pointer">
+                      <Pill tone="red">{o.posting_exceptions} operational entr{o.posting_exceptions === 1 ? "y" : "ies"} in exception queue</Pill>
                     </button>
                   )}
                 </div>
@@ -40,13 +81,13 @@ export default function FinanceDashboard({ onNavigate, feedRevision }: { onNavig
                 <Stat label="Cash in hand" value={formatINRShort(o.cash || 0)} onClick={() => onNavigate("cash_bank")} />
                 <Stat label="Bank balances" value={formatINRShort(o.bank || 0)} onClick={() => onNavigate("cash_bank")} />
                 <Stat
-                  label="Receivables"
+                  label="Receivables (AR)"
                   value={formatINRShort(o.receivables || 0)}
                   hint={o.receivables_overdue_90 && o.receivables_overdue_90 > 0 ? `${formatINRShort(o.receivables_overdue_90)} over 90 days` : "Nothing over 90 days"}
                   tone={o.receivables_overdue_90 && o.receivables_overdue_90 > 0 ? "warn" : "default"}
                   onClick={() => onNavigate("ar")}
                 />
-                <Stat label="Payables" value={formatINRShort(o.payables || 0)} onClick={() => onNavigate("ap")} />
+                <Stat label="Payables (AP)" value={formatINRShort(o.payables || 0)} onClick={() => onNavigate("ap")} />
                 <Stat
                   label="Surplus, year to date"
                   value={formatINRShort(o.year?.surplus || 0)}

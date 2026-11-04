@@ -45,7 +45,7 @@ export function Avatar({ name, status, size = 36 }: { name: string ;status: Pati
 /** Wraps the part of `text` that matches `query` in a highlight. */
 export function Highlight({ text, query }: { text: string ;query: string }) {
   const q = query.trim()
-  if (q.length < 2) return <>{text}</>
+  if (!q) return <>{text}</>
   const at = text.toLowerCase().indexOf(q.toLowerCase())
   if (at < 0) return <>{text}</>
   return (

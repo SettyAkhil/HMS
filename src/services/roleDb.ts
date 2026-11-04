@@ -37,7 +37,8 @@ export interface AppUser {
 // v19: insurance.* action permissions; Insurance Officer, Finance and Billing roles.
 // v20: Added dedicated Email & TPA Decision Hub (insurance_emails) to Insurance suite.
 // v27: Added radiology_reports and radiology_templates submodules to Enterprise Radiology.
-const ROLES_STORAGE_KEY = "hospai_rbac_roles_v27"
+// v28: Guaranteed full pharmacy submodules across Doctor and Pharmacist roles.
+const ROLES_STORAGE_KEY = "hospai_rbac_roles_v28"
 
 const USERS_STORAGE_KEY = "hospai_rbac_users_v2"
 
@@ -278,11 +279,22 @@ const INITIAL_ROLES: AppRole[] = [
       "pharmacy_dispensing",
       "pharmacy_rx",
       "pharmacy_ocr",
-
+      "pharmacy_returns",
+      "pharmacy_supplier_returns",
       "pharmacy_medicine",
+      "pharmacy_category",
+      "pharmacy_suppliers",
+      "pharmacy_po",
+      "pharmacy_grn",
       "pharmacy_ledger",
+      "pharmacy_transfers",
       "pharmacy_expiry",
       "pharmacy_write_off",
+      "pharmacy_analytics",
+      "pharmacy_notifications",
+      "pharmacy_users",
+      "pharmacy_audit",
+      "pharmacy_settings",
 
       "laboratory",
       "radiology",
@@ -381,8 +393,9 @@ const INITIAL_ROLES: AppRole[] = [
       "pharmacy_expiry",
       "pharmacy_write_off",
       "pharmacy_analytics",
-
       "pharmacy_notifications",
+      "pharmacy_users",
+      "pharmacy_audit",
       "pharmacy_settings",
 
       "dpi_ocr",
@@ -503,6 +516,10 @@ const INITIAL_ROLES: AppRole[] = [
       "pharmacy_expiry",
       "pharmacy_write_off",
       "pharmacy_analytics",
+      "pharmacy_notifications",
+      "pharmacy_users",
+      "pharmacy_audit",
+      "pharmacy_settings",
     ],
   },
 

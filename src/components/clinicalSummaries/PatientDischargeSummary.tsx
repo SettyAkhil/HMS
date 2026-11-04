@@ -82,7 +82,7 @@ export default function PatientDischargeSummary() {
   const localHits = useMemo(() => searchSummaryPatients(query), [query, version])
   useEffect(() => {
     const q = query.trim()
-    if (q.length < 2) {
+    if (!q) {
       setBackendHits([])
       setSearchingBackend(false)
       return

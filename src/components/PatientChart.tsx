@@ -31,6 +31,9 @@ type PatientRow = {
   appointment_status?: string | null;
   appointment_doctor?: string | null;
   appointment_dept?: string | null;
+  appointment_date?: string | null;
+  admission_date?: string | null;
+  created_at?: string | null;
 };
 
 type StreamCounts = { all: number; op: number; ip: number; er: number };
@@ -584,19 +587,19 @@ export default function PatientChart({
         id: 1,
         chief_complaint: targetEnc.chiefComplaint,
         notes: targetEnc.vitals?.notes || "OP Visit evaluation",
-        created_at: targetEnc.registrationTime || new Date().toISOString(),
+        created_at: targetEnc?.createdAt || (targetEnc?.date ? `${targetEnc.date}T${targetEnc.registrationTime || '09:00:00'}` : undefined) || targetPatient?.createdAt || new Date().toISOString(),
       }] : [],
       vitals: targetEnc?.vitals?.bp ? [{
         id: 1,
         bp: targetEnc.vitals.bp,
         pulse: targetEnc.vitals.pulse,
         temperature: targetEnc.vitals.temp,
-        created_at: targetEnc.timestamps?.vitalsRecorded || new Date().toISOString(),
+        created_at: targetEnc?.timestamps?.vitalsRecorded || targetEnc?.createdAt || new Date().toISOString(),
       }] : [],
       diagnoses: targetEnc?.diagnosis ? [{
         id: 1,
         diagnosis_name: targetEnc.diagnosis,
-        created_at: new Date().toISOString(),
+        created_at: targetEnc?.createdAt || new Date().toISOString(),
       }] : [],
       observation_notes: [],
       medication_schedules: [],
@@ -729,7 +732,9 @@ export default function PatientChart({
       opNumber: `OP-${row.patient_id}`,
       dept: row.appointment_dept || "General OP",
       isNew: true,
-      registrationTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: (row.appointment_date || row.admission_date || (row as any).created_at || new Date().toISOString()).split("T")[0],
+      createdAt: row.appointment_date || row.admission_date || (row as any).created_at || new Date().toISOString(),
+      registrationTime: new Date(row.appointment_date || row.admission_date || (row as any).created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       chiefComplaint: "Outpatient Care & Consultation",
       symptoms: ["General Examination"],
       aiSpecialty: "General Medicine",
@@ -741,7 +746,7 @@ export default function PatientChart({
       fee: 500,
       isPaid: true,
       paymentMethod: "Cash",
-      bookedAt: new Date().toISOString()
+      bookedAt: row.appointment_date || row.admission_date || (row as any).created_at || new Date().toISOString()
     }) as unknown as DBOPEncounter;
     setSelectedJourneyEncounter(enc);
   };

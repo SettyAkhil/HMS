@@ -16,7 +16,7 @@ import {
   MasterDoctor,
 } from "../services/doctorMaster"
 import PatientJourneyModal from "./PatientJourneyModal"
-import { whatsAppHandoffUrl, smsHandoffUrl } from "../services/patientMessaging"
+import MessageDeliveryStatus from "./messaging/MessageDeliveryStatus"
 import { normalizeDoctorName } from "../services/doctorPortalDb"
 
 const DEPARTMENTS = [
@@ -128,7 +128,7 @@ const detectDepartmentFromSymptoms = (
   onRequest: boolean
   note?: string
 } | null => {
-  if (!text || text.trim().length < 2) return null
+  if (!text || !text.trim()) return null
 
   const matched = SYMPTOM_RULES.find((r) => r.pattern.test(text))
   const specialty = matched?.specialty || "General Medicine"
@@ -624,7 +624,7 @@ export function AppointmentBookingModal({
           <div className="flex items-center gap-2 text-[12px] text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded border border-emerald-200">
             <span>📱</span>
             <span>
-              <strong>Instant Patient Alert:</strong> SMS &amp; WhatsApp confirmation will be messaged to <strong>{phone || "patient"}</strong> immediately upon booking.
+              <strong>Patient Alert:</strong> the confirmation goes to <strong>{phone || "patient"}</strong> by SMS &amp; WhatsApp after booking; this screen then shows whether it was sent.
             </span>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -650,10 +650,21 @@ export function AppointmentBookingModal({
 }
 
 function getEncounterDateStr(enc: DBOPEncounter): string {
+  if (enc.date && /^\d{4}-\d{2}-\d{2}$/.test(enc.date)) return enc.date
+  if (enc.createdAt && enc.createdAt.includes("T")) return enc.createdAt.split("T")[0]
   const ts = enc.timestamps?.arrival || enc.timestamps?.registration || enc.registrationTime
-  if (!ts) return new Date().toISOString().split("T")[0]
-  if (ts.includes("T")) return ts.split("T")[0]
-  if (/^\d{4}-\d{2}-\d{2}/.test(ts)) return ts.substring(0, 10)
+  if (ts) {
+    if (ts.includes("T")) return ts.split("T")[0]
+    if (/^\d{4}-\d{2}-\d{2}/.test(ts)) return ts.substring(0, 10)
+  }
+  if (enc.umr) {
+    try {
+      const pt = db.getPatientByUmr(enc.umr)
+      if (pt?.createdAt && pt.createdAt.includes("T")) {
+        return pt.createdAt.split("T")[0]
+      }
+    } catch {}
+  }
   return new Date().toISOString().split("T")[0]
 }
 
@@ -676,6 +687,7 @@ export default function Appointments({
   const [view, setView] = useState<"day" | "week" | "month" | "list">("day")
 
   const [justBooked, setJustBooked] = useState<{
+    encounterId: string
     name: string
     umr: string
     doctor: string
@@ -805,6 +817,7 @@ export default function Appointments({
   const handleAddAppointment = (booking: AppointmentBooking) => {
     const booked = bookAppointment(booking)
     setJustBooked({
+      encounterId: booked.encounterId,
       name: booked.name,
       umr: booked.umr,
       doctor: booked.doctor,
@@ -925,44 +938,13 @@ export default function Appointments({
             </div>
             <p className="text-[12px] text-[#15803D] mt-1">
               UMR: <strong className="font-mono">{justBooked.umr}</strong> · {justBooked.dept} · {justBooked.room}.
-              {justBooked.phone && (
-                <span className="ml-2 font-medium text-emerald-800">
-                  📱 Immediate SMS &amp; WhatsApp message dispatched to +91 {justBooked.phone}
-                </span>
-              )}
             </p>
+            {/* What really happened to the patient's confirmation message. */}
+            <div className="mt-2">
+              <MessageDeliveryStatus encounterId={justBooked.encounterId} kind="appointment_booked" phone={justBooked.phone} />
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {justBooked.phone && (
-              <>
-                <a
-                  href={
-                    whatsAppHandoffUrl(
-                      justBooked.phone,
-                      `Dear ${justBooked.name}, your appointment with ${justBooked.doctor} (${justBooked.dept}) is confirmed. Token ${justBooked.token}, Room ${justBooked.room}. Imperial Hospitals`,
-                    ) || "#"
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 bg-[#25D366] hover:bg-[#20BD5A] text-white text-[11.5px] font-bold rounded-none shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                  title="Open in WhatsApp directly"
-                >
-                  <span>💬</span> Open WhatsApp
-                </a>
-                <a
-                  href={
-                    smsHandoffUrl(
-                      justBooked.phone,
-                      `Dear ${justBooked.name}, your appointment with ${justBooked.doctor} (${justBooked.dept}) is confirmed. Token ${justBooked.token}, Room ${justBooked.room}. Imperial Hospitals`,
-                    ) || "#"
-                  }
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-[11.5px] font-bold rounded-none shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                  title="Open SMS app directly"
-                >
-                  <span>📲</span> Open SMS
-                </a>
-              </>
-            )}
             {onGoToBilling && (
               <button
                 type="button"
@@ -1208,7 +1190,7 @@ export default function Appointments({
                             <span>
                               Reg:{" "}
                               <strong className="font-mono text-gray-800">
-                                {enc.registrationTime}
+                                {enc.date ? `${enc.date} ${enc.registrationTime}` : enc.registrationTime}
                               </strong>
                             </span>
                           </div>

@@ -47,7 +47,7 @@ export default function MyHR() {
     <div className="flex flex-col lg:flex-row gap-4">
       <nav className="lg:w-52 shrink-0 flex lg:flex-col gap-1 overflow-x-auto" aria-label="My HR sections">
         {items.map(({ id, label, Icon }) => (
-          <button key={id} onClick={() => setSection(id)} aria-current={section === id ? "page" : undefined} className={`flex items-center gap-2 px-3 py-2 rounded-[6px] text-sm whitespace-nowrap text-left ${section === id ? "bg-[#007078]/10 text-[#007078] font-medium" : "text-slate-600 hover:bg-slate-100"}`}>
+          <button key={id} onClick={() => setSection(id)} aria-current={section === id ? "page" : undefined} className={`flex items-center gap-2 px-3 py-2 rounded text-sm whitespace-nowrap text-left ${section === id ? "bg-[#1B4FD8] text-white font-medium" : "text-gray-600 hover:bg-[#F0F2F5] hover:text-gray-900"}`}>
             <Icon className="w-4 h-4" />
             {label}
           </button>
@@ -110,11 +110,11 @@ function Home_({ me, go }: { me: Overview; go: (s: Section) => void }) {
       <div className="grid lg:grid-cols-2 gap-4">
         <Panel title="Next shifts" actions={<Btn variant="ghost" onClick={() => go("shifts")}>Roster</Btn>}>
           {!next.length ? <Empty title="No upcoming shifts published" /> : (
-            <ul className="divide-y divide-slate-100 text-sm">
+            <ul className="divide-y divide-[#DDE2EC] text-sm">
               {next.map((s) => (
-                <li key={s.id} className="py-1.5 flex justify-between">
-                  <span>{fmtDate(s.work_date)}</span>
-                  <span className="text-slate-600">{s.shift_name} {s.start_time?.slice(0, 5)}–{s.end_time?.slice(0, 5)}</span>
+                <li key={s.id} className="py-2 flex justify-between">
+                  <span className="font-medium text-gray-900">{fmtDate(s.work_date)}</span>
+                  <span className="text-gray-600">{s.shift_name} {s.start_time?.slice(0, 5)}–{s.end_time?.slice(0, 5)}</span>
                 </li>
               ))}
             </ul>
@@ -124,10 +124,10 @@ function Home_({ me, go }: { me: Overview; go: (s: Section) => void }) {
           {!me.announcements.length ? <Empty title="No announcements" /> : (
             <ul className="space-y-2">
               {me.announcements.map((a) => (
-                <li key={a.id}>
-                  <div className="text-sm font-medium text-slate-900">{a.title}{a.priority === "important" && <span className="ml-2 text-[11px] text-rose-700">important</span>}</div>
-                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{a.body}</p>
-                  <p className="text-[11px] text-slate-400">{fmtDateTime(a.published_at)}</p>
+                <li key={a.id} className="py-1">
+                  <div className="text-sm font-medium text-gray-900">{a.title}{a.priority === "important" && <span className="ml-2 text-[11px] text-rose-700 font-semibold">important</span>}</div>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap mt-0.5">{a.body}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{fmtDateTime(a.published_at)}</p>
                 </li>
               ))}
             </ul>
@@ -152,7 +152,7 @@ function MyAttendance({ employeeId }: { employeeId: string }) {
               <tr key={c.id}>
                 <td className="px-4 py-2">{fmtDate(c.work_date)}</td>
                 <td className="px-4 py-2">{c.punch_times.map((t: string) => fmtTime(t)).join(", ")}</td>
-                <td className="px-4 py-2 text-slate-600">{c.reason}</td>
+                <td className="px-4 py-2 text-gray-600">{c.reason}</td>
                 <td className="px-4 py-2"><StatusBadge value={c.status === "approved" ? "success" : c.status} label={c.status} /></td>
               </tr>
             ))}
@@ -197,12 +197,12 @@ function SwapDrawer({ shift, onClose }: { shift: Overview["upcoming_shifts"][num
   return (
     <Drawer open title={`Ask for cover: ${fmtDate(shift.work_date)} ${shift.shift_name ?? ""}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" busy={busy === "s"} disabled={!f.counterpart_employee_id || f.reason.length < 3} onClick={() => run("s", () => hr.post("/api/v1/workforce/swaps", { kind: "replacement", requester_assignment_id: shift.id, counterpart_employee_id: f.counterpart_employee_id, reason: f.reason }), "Request sent to your department head").then((r) => r && onClose())}>Send request</Btn></>}>
       <div className="space-y-3">
-        <p className="text-xs text-slate-500">A colleague who is free that day covers your shift. Your department head approves it and the roster updates itself.</p>
+        <p className="text-xs text-gray-500">A colleague who is free that day covers your shift. Your department head approves it and the roster updates itself.</p>
         {peers.loading && !peers.data ? <Loading /> : !peers.data?.length ? <Empty title="No colleagues in your department" /> : (
-          <ul className="border border-slate-200 rounded-[6px] divide-y divide-slate-100 max-h-64 overflow-y-auto">
+          <ul className="border border-[#DDE2EC] rounded divide-y divide-[#DDE2EC] max-h-64 overflow-y-auto">
             {peers.data.map((p) => (
               <li key={p.employee_id}>
-                <button disabled={p.state !== "free"} onClick={() => setF({ ...f, counterpart_employee_id: p.employee_id })} className={`w-full flex justify-between px-3 py-2 text-sm text-left disabled:opacity-50 ${f.counterpart_employee_id === p.employee_id ? "bg-teal-50" : "hover:bg-slate-50"}`}>
+                <button disabled={p.state !== "free"} onClick={() => setF({ ...f, counterpart_employee_id: p.employee_id })} className={`w-full flex justify-between px-3 py-2 text-sm text-left disabled:opacity-50 ${f.counterpart_employee_id === p.employee_id ? "bg-[#1B4FD8]/10 text-[#1B4FD8] font-medium" : "hover:bg-[#F8FAFC] text-gray-800"}`}>
                   <span>{p.name}</span>
                   <StatusBadge value={p.state === "free" ? "success" : "draft"} label={humanize(p.state)} />
                 </button>
@@ -274,11 +274,11 @@ function MyPayslips({ name }: { name: string }) {
         {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty title="No payslips yet" /> : (
           <Table head={["Period", "Number", "Net pay", ""]}>
             {list.data.map((p) => (
-              <tr key={p.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(p.id)}>
+              <tr key={p.id} className="hover:bg-[#F8FAFC] cursor-pointer" onClick={() => setOpen(p.id)}>
                 <td className="px-4 py-2">{p.period}</td>
                 <td className="px-4 py-2 font-mono text-xs">{p.number}</td>
-                <td className="px-4 py-2 tabular-nums">{money(p.net)}</td>
-                <td className="px-4 py-2 text-right text-xs text-[#007078]">View</td>
+                <td className="px-4 py-2 tabular-nums font-semibold text-gray-900">{money(p.net)}</td>
+                <td className="px-4 py-2 text-right text-xs text-[#1B4FD8] font-medium">View</td>
               </tr>
             ))}
           </Table>
@@ -289,7 +289,7 @@ function MyPayslips({ name }: { name: string }) {
           {slip.loading || !slip.data ? <Loading /> : (
             <div className="printable-area">
               <h3 className="text-base font-semibold">{slip.data.snapshot.period}</h3>
-              <p className="text-xs text-slate-500 mb-3">{name} · {slip.data.snapshot.employee.code} · {slip.data.snapshot.employee.designation ?? ""} · {slip.data.number}{slip.data.snapshot.employee.bank && ` · ${slip.data.snapshot.employee.bank}`}</p>
+              <p className="text-xs text-gray-500 mb-3">{name} · {slip.data.snapshot.employee.code} · {slip.data.snapshot.employee.designation ?? ""} · {slip.data.number}{slip.data.snapshot.employee.bank && ` · ${slip.data.snapshot.employee.bank}`}</p>
               <PayslipBody item={slip.data.snapshot} />
             </div>
           )}

@@ -345,7 +345,7 @@ export default function Dispensing({ onNavigate }: DispensingProps) {
     if (!rx) return
 
     setLoadedRxMeta(rx)
-    setPatientName(rx.patientName)
+    setPatientName(rx.patientName || (rx as any).patient || "Patient")
 
     const newCart: any[] = []
     const allMedicines = PharmacyDatabase.getMedicines()
@@ -353,55 +353,60 @@ export default function Dispensing({ onNavigate }: DispensingProps) {
     const outOfStock: string[] = []
     const notFound: string[] = []
 
-    rx.items?.forEach((item) => {
+    const rawItems = Array.isArray(rx.items) ? rx.items : []
+    rawItems.forEach((item) => {
+      if (!item || typeof item !== "object") return
+      const itemName = typeof item.medicineName === "string" ? item.medicineName.trim() : ""
+      if (!itemName) return
+
       let med = allMedicines.find((m) => m.id === item.medicineId)
       if (!med) {
-        med = allMedicines.find(
-          (m) =>
-            m.medicineName.toLowerCase() === item.medicineName.toLowerCase() ||
-            m.brandName?.toLowerCase() === item.medicineName.toLowerCase(),
-        )
+        med = allMedicines.find((m) => {
+          const mMedName = typeof m.medicineName === "string" ? m.medicineName.toLowerCase().trim() : ""
+          const mBrandName = typeof m.brandName === "string" ? m.brandName.toLowerCase().trim() : ""
+          const target = itemName.toLowerCase()
+          return mMedName === target || mBrandName === target
+        })
       }
       if (!med) {
         // Looser fallback: match partial names like "Amoxicillin" matching "Amoxicillin 500mg"
-        med = allMedicines.find(
-          (m) =>
-            m.medicineName
-              .toLowerCase()
-              .includes(item.medicineName.toLowerCase()) ||
-            item.medicineName
-              .toLowerCase()
-              .includes(m.medicineName.toLowerCase()),
-        )
+        med = allMedicines.find((m) => {
+          const mMedName = typeof m.medicineName === "string" ? m.medicineName.toLowerCase().trim() : ""
+          const target = itemName.toLowerCase()
+          return (
+            (mMedName && target.includes(mMedName)) ||
+            (target && mMedName.includes(target))
+          )
+        })
       }
 
       if (!med) {
-        notFound.push(item.medicineName)
+        notFound.push(itemName)
         return
       }
       const batches = PharmacyDatabase.getBatches().filter(
-        (b) => b.medicineId === med.id,
+        (b) => b && b.medicineId === med!.id,
       )
       let { splits } = PharmacyDatabase.executeFEFOSplit(
         med.id,
-        item.quantity,
+        item.quantity || 1,
         batches,
       )
 
-      if (splits.length === 0 && batches.some((b) => b.availableQuantity > 0)) {
+      if (splits.length === 0 && batches.some((b) => (b.availableQuantity || 0) > 0)) {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
         const available = batches
           .filter(
             (b) =>
-              b.availableQuantity > 0 &&
+              (b.availableQuantity || 0) > 0 &&
               (!b.expiryDate || new Date(b.expiryDate).getTime() >= today.getTime()),
           )
           .sort(
             (a, b) =>
               new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime(),
           )
-        let remaining = item.quantity
+        let remaining = item.quantity || 1
         for (const b of available) {
           if (remaining <= 0) break
           const take = Math.min(b.availableQuantity, remaining)
@@ -411,31 +416,40 @@ export default function Dispensing({ onNavigate }: DispensingProps) {
       }
 
       if (splits.length === 0) {
-        outOfStock.push(item.medicineName)
+        outOfStock.push(itemName)
       }
+
+      const medMrp = (med as any).mrp !== undefined && (med as any).mrp !== null ? Number((med as any).mrp) : 10
+      const medPurchasePrice = (med as any).purchasePrice !== undefined && (med as any).purchasePrice !== null ? Number((med as any).purchasePrice) : +(medMrp * 0.75).toFixed(2)
 
       splits.forEach((split) => {
         const b = split.batch
+        const batchMrp = (b as any).mrp !== undefined && (b as any).mrp !== null ? Number((b as any).mrp) : medMrp
+        const batchRate = b.purchasePrice !== undefined && b.purchasePrice !== null ? Number(b.purchasePrice) : (medPurchasePrice || +(batchMrp * 0.75).toFixed(2))
+        const qty = split.usedQty || 1
+        const taxRate = med!.taxPercentage ?? 5
+        const itemTotal = batchMrp * qty * (1 + taxRate / 100)
+
         newCart.push({
           id: Date.now() + Math.random(),
-          medicineId: med.id,
+          medicineId: med!.id,
           batchId: b.id,
-          medicine: med.brandName || med.medicineName,
-          generic: med.genericName,
-          form: med.dosageForm || (med as any).form || "TABLET",
+          medicine: med!.brandName || med!.medicineName,
+          generic: med!.genericName,
+          form: med!.dosageForm || (med as any).form || "TABLET",
           packing: (med as any).packing || (med as any).pack || "",
           batch: b.batchNumber,
           expiry: b.expiryDate,
-          qty: split.usedQty,
-          mrp: b.mrp,
-          rate: b.purchasePrice || (med as any).purchasePrice || +(b.mrp * 0.75).toFixed(2),
+          qty: qty,
+          mrp: batchMrp,
+          rate: batchRate,
           discount: 0,
-          tax: med.taxPercentage ?? 5,
-          hsnCode: med.hsnCode || "3004 039",
-          mnf: (med as any).mnfCode || (med.manufacturer ? med.manufacturer.substring(0, 4).toUpperCase() : "MANK"),
-          sh: med.scheduleType || "H",
+          tax: taxRate,
+          hsnCode: med!.hsnCode || "3004 039",
+          mnf: (med as any).mnfCode || (med!.manufacturer ? med!.manufacturer.substring(0, 4).toUpperCase() : "MANK"),
+          sh: med!.scheduleType || "H",
           binNo: (b as any).location || (med as any).binNo || "",
-          total: b.mrp * split.usedQty * (1 + (med.taxPercentage ?? 5) / 100),
+          total: isNaN(itemTotal) ? 0 : itemTotal,
         })
       })
     })
@@ -865,7 +879,8 @@ export default function Dispensing({ onNavigate }: DispensingProps) {
     }
 
     const options = {
-      key: "rzp_test_TYrv3Z5h61z8uC", // Global Hospital Test Key
+      // Razorpay key id (public, not a secret): set VITE_RAZORPAY_KEY_ID to the live key in production.
+      key: (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || "rzp_test_TYrv3Z5h61z8uC",
       amount: Math.round(amount * 100), // Convert INR to Paisa
       currency: "INR",
       name: "Global Hospital Pharmacy",

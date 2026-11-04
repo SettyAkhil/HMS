@@ -23,6 +23,17 @@ import { safeLocalStorageSetItem } from "../utils/storageQuotaManager"
 import { db, DBPatient, DBOPEncounter } from "./db";
 import { getDoctorConsultationFee } from "./doctorMaster";
 import { isRadiologyTest } from "../utils/testClassifier";
+import { encounterArrivalIso } from "./encounterTime"
+import { OpReportsService } from "./opReportsDb"
+import {
+  applyServerPaymentLocally,
+  getServerClaims,
+  syncServerBilling,
+  onBillingSync,
+  postServerPayment,
+  retainBillingSync,
+} from "./billingSync"
+
 
 import { ErDatabase, ErVisitRecord } from "./erDb"
 
@@ -78,6 +89,12 @@ export type ClaimStatus = "Draft" | "Ready" | "Submitted" | "Accepted" | "Reject
 
 export interface ClaimRecord {
   id: string // e.g. "CLM-8921"
+
+  /** Set on bills that live on the server (billing-service invoices); see billingSync.ts. */
+  serverInvoiceId?: number
+
+  /** Set on a running IP bill (patient still in a bed; no final invoice yet). */
+  runningAdmissionId?: number
 
   invoiceNo: string // e.g. "INV-2026-0811"
 
@@ -461,6 +478,14 @@ export interface LabOrderRecord {
 
   verifiedAt?: string
 
+  billingClearedAt?: string
+
+  eligibleAt?: string
+
+  orderedAt?: string
+
+  createdAt?: string
+
   comments?: string
 
   criticalNotified?: {
@@ -646,6 +671,8 @@ const STORAGE_KEY_LAB_ORDERS = "hosp_lab_orders_v1"
 const STORAGE_KEY_RAD_STUDIES = "hosp_rad_studies_v1"
 
 const BILLING_UPDATE_EVENT = "hospital_billing_updated"
+/** Fired when the server refused a payment taken on a server bill. */
+export const BILLING_PAYMENT_FAILED_EVENT = "hospital_billing_payment_failed"
 
 export const INITIAL_LAB_ORDERS: LabOrderRecord[] = [
   {
@@ -4934,14 +4961,41 @@ export class BillingDatabase {
 
       if (!raw) return fallback
 
-      return JSON.parse(raw)
+      const parsed = JSON.parse(raw)
+      if (key === STORAGE_KEY_CLAIMS && Array.isArray(parsed)) {
+        // Demo bills once seeded into every browser are fictional patients;
+        // server bills are owned by the server and must never come from here.
+        const seedIds = new Set(INITIAL_HOSPITAL_CLAIMS.map((c) => c.id))
+        const kept = parsed.filter(
+          (c: ClaimRecord) =>
+            c &&
+            !seedIds.has(c.id) &&
+            !c.serverInvoiceId &&
+            !c.runningAdmissionId &&
+            !String(c.id).startsWith("SRV-") &&
+            !String(c.id).startsWith("RUN-") &&
+            // bills the old insurance-claim converter invented
+            !(/^CLM-\d+$/.test(String(c.id)) && c.attendingDoctor === "Dr. On-Duty" && c.mrn === "100245"),
+        )
+        if (kept.length !== parsed.length) {
+          try {
+            localStorage.setItem(key, JSON.stringify(kept))
+          } catch {}
+        }
+        return kept as T
+      }
+      return parsed
     } catch {
       return fallback
     }
   }
 
   private static save<T,>(key: string, data: T): void {
-    const serialized = JSON.stringify(data)
+    const toStore =
+      key === STORAGE_KEY_CLAIMS && Array.isArray(data)
+        ? (data as ClaimRecord[]).filter((c) => !c.serverInvoiceId && !c.runningAdmissionId)
+        : data
+    const serialized = JSON.stringify(toStore)
     const saved = safeLocalStorageSetItem(key, serialized)
     if (!saved) {
       console.warn(`[BillingDatabase] Write to localStorage throttled for "${key}". Changes retained in memory.`)
@@ -4960,69 +5014,57 @@ export class BillingDatabase {
     this.dispatchUpdate()
   }
 
+  /**
+   * Kept for existing callers (the doctor live board). Bills now come from
+   * the server's invoices via billingSync, with each invoice's insurance
+   * claim attached to it -- the old version turned every insurance claim into
+   * a second, separate bill filled with placeholder details.
+   */
   static syncClaimsWithBackend(): void {
-    apiFetch<{ claims: any[] }>("/api/billing/claims")
-      .then((res) => {
-        if (res && Array.isArray(res.claims) && res.claims.length > 0) {
-          const claims = this.load<ClaimRecord[]>(STORAGE_KEY_CLAIMS, INITIAL_HOSPITAL_CLAIMS)
-          let changed = false
-          for (const c of res.claims) {
-            const claimId = `CLM-${c.id}`
-            const existingIdx = claims.findIndex((item) => item.id === claimId || item.id === String(c.id))
-            if (existingIdx < 0) {
-              claims.unshift({
-                id: claimId,
-                invoiceNo: c.invoice_id ? `INV-${c.invoice_id}` : `INV-${c.id}`,
-                patientId: c.patient_id || `UMR-${c.id}`,
-                patientName: c.patient_name || "Patient",
-                mrn: c.mrn || "100245",
-                age: 40,
-                gender: "Male",
-                phone: "+91 98765 43210",
-                department: "Outpatient",
-                dateOfService: c.created_at ? c.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
-                insuranceProvider: c.insurer_name || "Insurance",
-                policyNumber: c.pre_auth_code || "POL-101",
-                totalAmount: parseFloat(c.claim_amount || 0),
-                insurancePortion: parseFloat(c.claim_amount || 0),
-                patientPortion: 0,
-                amountPaid: parseFloat(c.approved_amount || 0),
-                balanceDue: Math.max(0, parseFloat(c.claim_amount || 0) - parseFloat(c.approved_amount || 0)),
-                status: (c.status === "approved" ? "Accepted" : c.status === "rejected" ? "Rejected" : "Submitted") as any,
-                items: [],
-                subtotal: parseFloat(c.claim_amount || 0),
-                discount: 0,
-                tax: 0,
-                payments: [],
-                diagnosisCodes: ["Z00.00"],
-                attendingDoctor: "Dr. On-Duty",
-                createdAt: c.created_at || new Date().toISOString(),
-                updatedAt: c.updated_at || new Date().toISOString(),
-              })
-              changed = true
-            }
-          }
-          if (changed) {
-            this.save(STORAGE_KEY_CLAIMS, claims)
-            this.dispatchUpdate()
-          }
-        }
-      })
-      .catch(() => {})
+    void syncServerBilling()
   }
 
   static addDepartmentCharge(charge: any): ClaimRecord {
     return this.createClaim(charge)
   }
 
+  /**
+   * Live updates for billing screens. Fires on any change that alters a bill:
+   * a write in this tab, the server's invoices changing (polled while any
+   * billing screen is open), a new OP visit at reception, and bill or visit
+   * writes from other tabs. Bursts are batched into one callback.
+   */
   static onUpdate(callback: () => void): () => void {
     if (typeof window === "undefined") return () => {}
 
-    const handler = () => callback()
+    let queued = false
+    const handler = () => {
+      if (queued) return
+      queued = true
+      // A timer, not requestAnimationFrame: rAF is paused in background tabs,
+      // so a billing screen behind another tab would never catch up.
+      setTimeout(() => {
+        queued = false
+        callback()
+      }, 30)
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === STORAGE_KEY_CLAIMS || e.key.startsWith("hospai_db_") || e.key.startsWith("hosp_billing_")) handler()
+    }
 
     window.addEventListener(BILLING_UPDATE_EVENT, handler)
+    window.addEventListener("storage", onStorage)
+    const unSync = onBillingSync(handler)
+    const release = retainBillingSync()
+    const unDb = db.subscribe(handler)
 
-    return () => window.removeEventListener(BILLING_UPDATE_EVENT, handler)
+    return () => {
+      window.removeEventListener(BILLING_UPDATE_EVENT, handler)
+      window.removeEventListener("storage", onStorage)
+      unSync()
+      release()
+      unDb()
+    }
   }
 
   static getStandardServices() {
@@ -5046,7 +5088,7 @@ export class BillingDatabase {
   }): ClaimRecord[] {
     let claims = this.load<ClaimRecord[]>(
       STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
+      [],
     )
 
     // Open OP / non-admitted bills that carry insurance are patient-pay.
@@ -5084,12 +5126,10 @@ export class BillingDatabase {
       if (changed) this.save(STORAGE_KEY_CLAIMS, claims)
     }
 
-    // Ensure Priya Sharma exists in claims list
-    if (!claims.some((c) => c.patientName?.toLowerCase().includes("priya sharma") || c.invoiceNo === "INV-2026-0002")) {
-      claims.unshift(INITIAL_HOSPITAL_CLAIMS[0])
-    }
 
-    // Auto-sync OP Encounters from db.ts if not yet in claims list
+    // Auto-sync OP Encounters from db.ts if not yet in claims list. These are
+    // derived on every read (not stored until a payment is taken on them).
+    const derivedOp = new Set<string>()
     try {
       const opEncs = db.getEncounters();
       const existingEncounterIds = new Set(
@@ -5154,6 +5194,15 @@ export class BillingDatabase {
             });
           }
 
+          const visitIso = (() => {
+            try {
+              return encounterArrivalIso(enc)
+            } catch {
+              return ""
+            }
+          })()
+          const visitAt = visitIso && !Number.isNaN(new Date(visitIso).getTime()) ? new Date(visitIso).toISOString() : new Date().toISOString()
+          derivedOp.add(`CLM-${enc.id}`)
           const newClaim: ClaimRecord = {
             id: `CLM-${enc.id}`,
             invoiceNo: `INV-${enc.opNumber}`,
@@ -5167,7 +5216,7 @@ export class BillingDatabase {
             payments: [],
             department: "Outpatient",
             carePathway: `${enc.dept} Consultation (${enc.opNumber})`,
-            dateOfService: OpReportsService.getEncounterDate(enc) || (enc as any).createdAt?.split("T")[0] || new Date().toISOString().split("T")[0],
+            dateOfService: OpReportsService.getEncounterDate(enc) || (enc as any).createdAt?.split("T")[0] || visitAt.split("T")[0],
             insuranceProvider: "Self-Pay",
             policyNumber: "N/A",
             status: isPaid ? "Paid" : "Draft",
@@ -5182,8 +5231,8 @@ export class BillingDatabase {
             patientPortion: totalAmt,
             amountPaid: isPaid ? totalAmt : 0,
             balanceDue: isPaid ? 0 : totalAmt,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: visitAt,
+            updatedAt: visitAt,
           };
 
           claims.push(newClaim);
@@ -5191,6 +5240,24 @@ export class BillingDatabase {
       });
     } catch {
       // ignore
+    }
+
+    // The hospital's server invoices (billing-service), kept live by
+    // billingSync. A bill this browser derived from an OP visit is dropped when
+    // the server already holds that patient's OP invoice for the same day --
+    // reception writes the visit there too, and a patient must not see the
+    // same consultation billed twice.
+    const server = getServerClaims()
+    if (server.length) {
+      const serverOp = new Set(
+        server
+          .filter((c) => c.department === "Outpatient")
+          .map((c) => `${c.patientId.toUpperCase()}|${c.dateOfService}`),
+      )
+      claims = claims.filter(
+        (c) => !(derivedOp.has(c.id) && serverOp.has(`${c.patientId.toUpperCase()}|${c.dateOfService}`)),
+      )
+      claims = [...claims, ...server]
     }
 
     if (filter) {
@@ -5239,10 +5306,7 @@ export class BillingDatabase {
   }
 
   static getClaimById(id: string): ClaimRecord | undefined {
-    const claims = this.load<ClaimRecord[]>(
-      STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
-    )
+    const claims = this.getClaims()
 
     return claims.find((c) => c.id === id || c.invoiceNo === id)
   }
@@ -5250,7 +5314,7 @@ export class BillingDatabase {
   static createClaim(data: Partial<ClaimRecord>): ClaimRecord {
     let claims = this.load<ClaimRecord[]>(
       STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
+      [],
     )
 
     // OP / non-admitted bills never carry insurance: the patient's policy on
@@ -5524,9 +5588,14 @@ export class BillingDatabase {
   }
 
   static updateClaim(id: string, updates: Partial<ClaimRecord>): ClaimRecord {
+    if (/^(SRV|RUN)-/i.test(String(id))) {
+      throw new Error(
+        "This bill is held by the hospital server (or is a running admission bill) and cannot be edited here. Changes are made on the server's invoice.",
+      )
+    }
     const claims = this.load<ClaimRecord[]>(
       STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
+      [],
     )
 
     const idx = claims.findIndex((c) => c.id === id || c.invoiceNo === id)
@@ -5674,9 +5743,10 @@ export class BillingDatabase {
   }
 
   static resetClaimToUnpaid(query: string): boolean {
+    if (/^(SRV|RUN)-/i.test(String(query))) return false
     const claims = this.load<ClaimRecord[]>(
       STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
+      [],
     )
 
     const q = (query || "").toLowerCase().trim()
@@ -5726,9 +5796,10 @@ export class BillingDatabase {
   }
 
   static resetClaimToUnbilled(query: string): boolean {
+    if (/^(SRV|RUN)-/i.test(String(query))) return false
     const claims = this.load<ClaimRecord[]>(
       STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
+      [],
     )
 
     const q = (query || "").toLowerCase().trim()
@@ -6259,26 +6330,44 @@ export class BillingDatabase {
     const claims = this.getClaims();
 
     const target = (invoiceId || "").toLowerCase().trim();
+    const norm = (v?: string) => (v || "").toLowerCase().trim()
 
-    const idx = claims.findIndex((c) => {
-      const cId = (c.id || "").toLowerCase().trim();
-      const cInv = (c.invoiceNo || "").toLowerCase().trim();
-      const cEnc = (c.encounterId || "").toLowerCase().trim();
+    // Exact identity first. The old loose match (id.includes / endsWith) found
+    // the *first* bill whose id merely contained the target -- paying SRV-1
+    // could credit SRV-12. A partial match is accepted only when exactly one
+    // bill fits, so a payment can never land on another patient's bill.
+    let idx = claims.findIndex((c) => {
+      const cId = norm(c.id)
+      const cInv = norm(c.invoiceNo)
+      const cEnc = norm(c.encounterId)
       return (
         cId === target ||
         cInv === target ||
-        cEnc === target ||
-        `clm-${cEnc}` === target ||
-        `inv-${cInv}` === target ||
-        cId.endsWith(target) ||
-        target.endsWith(cId) ||
-        (target.length > 3 && (cId.includes(target) || cInv.includes(target)))
-      );
-    });
+        (!!cEnc && cEnc === target) ||
+        (!!cEnc && `clm-${cEnc}` === target) ||
+        `inv-${cInv}` === target
+      )
+    })
+    if (idx < 0 && target.length > 3) {
+      const loose = claims
+        .map((c, i) => ({ c, i }))
+        .filter(({ c }) => {
+          const cId = norm(c.id)
+          const cInv = norm(c.invoiceNo)
+          return cId.endsWith(target) || target.endsWith(cId) || cId.includes(target) || cInv.includes(target)
+        })
+      if (loose.length === 1) idx = loose[0].i
+    }
 
     if (idx < 0) throw new Error("Invoice not found")
 
     const claim = claims[idx]
+
+    if (claim.runningAdmissionId) {
+      throw new Error(
+        "This is a running bill -- the patient is still admitted. The final IP bill is raised when the bed is released at discharge; collect payment on that bill.",
+      )
+    }
 
     const newAmountPaid = (claim.amountPaid || 0) + payment.amount
 
@@ -6344,7 +6433,25 @@ export class BillingDatabase {
 
     claims[idx] = updatedClaim
 
-    this.save(STORAGE_KEY_CLAIMS, claims)
+    if (claim.serverInvoiceId) {
+      // A server bill: show the payment now, make it real on the server (so
+      // every desk sees it), then re-sync. If the server refuses, the next
+      // sync puts the bill back as it really is and the counter is told.
+      applyServerPaymentLocally(updatedClaim)
+      this.dispatchUpdate()
+      void postServerPayment(claim.serverInvoiceId, payment).then((res) => {
+        if (!res.ok && typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(BILLING_PAYMENT_FAILED_EVENT, {
+              detail: { invoiceNo: claim.invoiceNo, error: res.error },
+            }),
+          )
+        }
+        this.dispatchUpdate()
+      })
+    } else {
+      this.save(STORAGE_KEY_CLAIMS, claims)
+    }
 
     // Sync underlying OP encounter in db.ts
     if (updatedClaim.encounterId) {
@@ -7557,7 +7664,7 @@ export class BillingDatabase {
           syncedStudies[existingIdx] = {
             ...current,
 
-            paymentStatus: isPaid ? "Paid" : (claim.status === "Awaiting Billing" || claim.balanceDue > 0 ? "Payment Pending" : current.paymentStatus),
+            paymentStatus: isPaid ? "Paid" : ((claim.status as string) === "Awaiting Billing" || claim.balanceDue > 0 ? "Payment Pending" : current.paymentStatus),
 
             paidReceiptNo: isPaid
               ? current.paidReceiptNo || receiptNo
@@ -7885,7 +7992,7 @@ export class BillingDatabase {
     try {
       const claims = this.load<ClaimRecord[]>(
         STORAGE_KEY_CLAIMS,
-        INITIAL_HOSPITAL_CLAIMS,
+        [],
       )
       const targetMrn = (study.mrn || study.umr || "")
         .toLowerCase()
@@ -8116,7 +8223,7 @@ export class BillingDatabase {
       }
       // If neither exists, do NOT synthesize a placeholder "Diagnostic Imaging Study"
       console.warn(`Radiology study '${id}' not found in active records or seed catalog; skipping phantom record creation.`)
-      return null
+      return null as unknown as RadiologyStudyRecord
     }
 
     const updated = { ...studies[idx], ...updates }
@@ -8549,7 +8656,7 @@ export class BillingDatabase {
   ): { totalAdded: number ;newBalance: number ;description: string } {
     const claims = this.load<ClaimRecord[]>(
       STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
+      [],
     )
 
     const deptCharges = this.load<DepartmentChargeRecord[]>(
@@ -8988,10 +9095,7 @@ export class BillingDatabase {
     invoiceNo: string;
     department: DepartmentType;
   })[] {
-    const claims = this.load<ClaimRecord[]>(
-      STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
-    )
+    const claims = this.getClaims()
 
     const paymentsList: (PaymentRecord & {
       patientName: string;
@@ -10278,7 +10382,7 @@ export class BillingDatabase {
   // ── RESET TO CLEAN SEED DATA ────────────────────────────────────────────────
 
   static resetToActualData(): void {
-    this.save(STORAGE_KEY_CLAIMS, INITIAL_HOSPITAL_CLAIMS)
+    this.save(STORAGE_KEY_CLAIMS, [])
 
     this.save(STORAGE_KEY_DEPT_CHARGES, INITIAL_DEPARTMENT_CHARGES)
   }
@@ -10286,10 +10390,7 @@ export class BillingDatabase {
   // ── FINANCIAL METRICS & KPI ENGINE ──────────────────────────────────────────
 
   static getFinancialMetrics(): FinancialMetrics {
-    const claims = this.load<ClaimRecord[]>(
-      STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
-    )
+    const claims = this.getClaims()
 
     const activeClaims = claims.filter((c) => c.status !== "Voided")
 
@@ -10374,10 +10475,7 @@ export class BillingDatabase {
   }
 
   static getPayerMixMetrics(): PayerMixItem[] {
-    const claims = this.load<ClaimRecord[]>(
-      STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
-    )
+    const claims = this.getClaims()
 
     const totalAmount = claims.reduce((sum, c) => sum + (c.totalAmount || 0), 0)
 
@@ -10425,10 +10523,7 @@ export class BillingDatabase {
   }
 
   static getArAgingMetrics(): ArAgingItem[] {
-    const claims = this.load<ClaimRecord[]>(
-      STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
-    )
+    const claims = this.getClaims()
 
     const unpaidClaims = claims.filter(
       (c) => c.status !== "Paid" && c.totalAmount > 0,
@@ -10485,10 +10580,7 @@ export class BillingDatabase {
   }
 
   static exportClaimsToCSV(): string {
-    const claims = this.load<ClaimRecord[]>(
-      STORAGE_KEY_CLAIMS,
-      INITIAL_HOSPITAL_CLAIMS,
-    )
+    const claims = this.getClaims()
 
     const headers = [
       "Claim ID",

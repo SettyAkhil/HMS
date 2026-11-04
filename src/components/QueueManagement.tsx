@@ -543,7 +543,7 @@ export default function QueueManagement({
     setIsIssueTokenOpen(false)
     triggerToast(
       `Queue Token Issued: ${tokenStr}`,
-      `Token ${tokenStr} issued for ${targetPatient.name} in ${tokenDept}.`,
+      `Token ${tokenStr} issued for ${targetPatient.name} in ${tokenDept}. Confirmation message to the patient is being sent (status in Patient Messages).`,
     )
 
     if (tokenPriority === "Emergency") {

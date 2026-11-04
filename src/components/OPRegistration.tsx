@@ -9,7 +9,6 @@ import {
   findMatchingPatient,
 } from "../services/db"
 import { HospAILogo } from "./HospAILogo"
-import { notifyOpRegistered } from "../services/patientMessaging"
 
 // Accurate age calculation from Date of Birth
 const calculateAge = (dobString: string): number => {
@@ -210,7 +209,8 @@ export default function OPRegistration({
         })
 
       setSelectedEncounter(createdEncounter)
-      notifyOpRegistered(createdEncounter)
+      // Registration message: sent by patientMessaging when db announces the
+      // registration (after the server write), so every desk path is covered once.
       refreshFromDb()
       toast.success(
         `Patient registered successfully! UMR: ${createdPatient.umr}, OP#: ${createdEncounter.opNumber}`,
@@ -250,7 +250,8 @@ export default function OPRegistration({
   // 2. Handle Existing Patient Revisit -> Retains Permanent UMR -> generates new OP Number
   const handleCreateRevisitEncounter = (p: DBPatient) => {
     const newEncounter = db.createRevisitEncounter(p.umr)
-    notifyOpRegistered(newEncounter)
+    // Registration message: sent by patientMessaging when db announces the
+    // registration (after the server write), so every desk path is covered once.
 
     setSelectedEncounter(newEncounter)
     setGenerationAlert({
@@ -697,7 +698,7 @@ export default function OPRegistration({
                             className="flex justify-between text-[#475569]"
                           >
                             <span>
-                              • {pv.opNumber} ({pv.registrationTime})
+                              • {pv.opNumber} ({pv.date || pv.createdAt?.split("T")[0] || pv.registrationTime})
                             </span>
                             <span className="text-[#64748B]">{pv.dept}</span>
                           </div>
@@ -808,7 +809,9 @@ export default function OPRegistration({
                         Registration Date
                       </div>
                       <div className="text-[12px] font-mono font-bold text-gray-900">
-                        {selectedEncounter.registrationTime}
+                        {selectedEncounter.date
+                          ? `${selectedEncounter.date} ${selectedEncounter.registrationTime}`
+                          : selectedEncounter.createdAt?.split("T")[0] || selectedEncounter.registrationTime}
                       </div>
                     </div>
                   </div>
@@ -949,8 +952,8 @@ export default function OPRegistration({
                           {e.isNew ? "New Patient" : "Revisit Encounter"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-mono text-gray-500">
-                        {e.registrationTime}
+                      <td className="px-4 py-3 font-mono text-gray-500 whitespace-nowrap">
+                        {e.date ? `${e.date} ${e.registrationTime}` : e.registrationTime}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">

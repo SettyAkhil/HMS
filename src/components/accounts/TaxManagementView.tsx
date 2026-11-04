@@ -1,50 +1,133 @@
-import React, { useState } from "react"
-import { ShieldCheck, FileCheck2, Percent, Building2, CheckCircle2 } from "lucide-react"
+import React, { useState, useEffect } from "react"
+import { Percent, Building2, CheckCircle2, FileCheck2, Download, Save, RefreshCw } from "lucide-react"
+import { accountsApi } from "../../services/accounts/client"
+import type { GstSummary, TaxCode } from "../../types/accounts"
+import {
+  Button, Card, DateRangeBar, Empty, ErrorNote, Field, Input, Loaded, Money, Notice, PageHeader, Pill, Select,
+  Table, Td, Th, downloadCsv, formatDate, formatINR, fyStart, today, useAction, useApi
+} from "./ui"
+
+interface TaxConfig {
+  gstin: string
+  legalName: string
+  placeOfSupply: string
+  taxScheme: "Regular" | "Composition"
+  isGstRegistered: boolean
+}
+
+const DEFAULT_TAX_CONFIG: TaxConfig = {
+  gstin: "36AAAAA0000A1Z5",
+  legalName: "HospAI Healthcare Enterprise Pvt Ltd",
+  placeOfSupply: "Telangana (36)",
+  taxScheme: "Regular",
+  isGstRegistered: true,
+}
+
+const TAX_CONFIG_KEY = "hospai_tax_config_v1"
 
 export default function TaxManagementView() {
-  const [gstin, setGstin] = useState("36AAAAA0000A1Z5")
-  const [legalName, setLegalName] = useState("HospAI Healthcare Enterprise Pvt Ltd")
-  const [placeOfSupply, setPlaceOfSupply] = useState("Telangana (36)")
-  const [cgstRate, setCgstRate] = useState(2.5)
-  const [sgstRate, setSgstRate] = useState(2.5)
-  const [igstRate, setIgstRate] = useState(5.0)
+  const [config, setConfig] = useState<TaxConfig>(() => {
+    try {
+      const raw = localStorage.getItem(TAX_CONFIG_KEY)
+      return raw ? JSON.parse(raw) : DEFAULT_TAX_CONFIG
+    } catch {
+      return DEFAULT_TAX_CONFIG
+    }
+  })
+
+  const [range, setRange] = useState<{ from?: string; to: string }>({ from: fyStart(), to: today() })
+  const [notice, setNotice] = useState<string | null>(null)
+  const gstState = useApi(() => accountsApi.gst(range), [range.from, range.to])
+  const chartState = useApi(() => accountsApi.chart(), [])
+
+  const saveConfig = () => {
+    localStorage.setItem(TAX_CONFIG_KEY, JSON.stringify(config))
+    setNotice("Tax configuration saved.")
+  }
+
+  const exportGst = (summary: GstSummary) => {
+    const lines = Object.values(summary.lines || {})
+    downloadCsv(
+      `gst_summary_${summary.from}_${summary.to}.csv`,
+      ["Account Code", "Account Name", "Amount (₹)"],
+      lines.map((l) => [l.code, l.name, l.amount])
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-[#DDE2EC] shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
-            <Percent className="text-[#047857]" size={20} />
-            Indian GST & Tax Framework Configuration
-          </h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Configurable CGST, SGST, IGST Rules, Place of Supply & Eligible Input Tax Credit (ITC)
-          </p>
-        </div>
-        <span className="px-3 py-1 bg-[#ECFDF5] text-[#047857] border border-[#A7F3D0] text-xs font-semibold rounded-lg flex items-center gap-1.5">
-          <CheckCircle2 size={14} />
-          GST Engine Active
-        </span>
-      </div>
+      <PageHeader
+        title="GST & Tax Engine"
+        subtitle="Indian Goods and Services Tax compliance, live Output Liability, Input Tax Credit (ITC) reconciliation, and general ledger tax codes."
+        actions={
+          <div className="flex items-center gap-3">
+            <DateRangeBar from={range.from} to={range.to} onChange={setRange} />
+            {gstState.data && (
+              <Button size="sm" onClick={() => exportGst(gstState.data!)}>
+                <Download size={13} /> Export GST
+              </Button>
+            )}
+          </div>
+        }
+      />
 
-      {/* Tax Configuration Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <Notice message={notice} onClose={() => setNotice(null)} />
+
+      {/* Live GST Overview Banner from Ledger */}
+      <Loaded state={gstState}>
+        {(summary) => (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl shadow-xs">
+              <span className="text-xs text-[#64748B] font-medium">Output Tax Liability (Gross)</span>
+              <div className="text-xl font-bold text-[#BE123C] mt-1">{formatINR(summary.output_tax)}</div>
+              <div className="text-[11px] text-[#64748B] mt-1">Tax collected on Patient bills &amp; Pharmacy sales</div>
+            </div>
+
+            <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl shadow-xs">
+              <span className="text-xs text-[#64748B] font-medium">Eligible Input Tax Credit (ITC)</span>
+              <div className="text-xl font-bold text-[#047857] mt-1">{formatINR(summary.input_credit)}</div>
+              <div className="text-[11px] text-[#64748B] mt-1">Tax paid on Pharmacy GRNs &amp; Supplier purchases</div>
+            </div>
+
+            <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl shadow-xs">
+              <span className="text-xs text-[#64748B] font-medium">Net GST Payable / (Credit)</span>
+              <div
+                className={`text-xl font-bold mt-1 ${
+                  summary.net_payable > 0 ? "text-[#B45309]" : "text-[#047857]"
+                }`}
+              >
+                {formatINR(summary.net_payable)}
+              </div>
+              <div className="text-[11px] text-[#64748B] mt-1">
+                {summary.net_payable > 0 ? "Payable to Tax Authorities" : "Net Input Credit Carried Forward"}
+              </div>
+            </div>
+          </div>
+        )}
+      </Loaded>
+
+      {/* Configuration & Tax Code Setup */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Hospital Entity Tax Registration */}
         <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl space-y-4 shadow-xs">
-          <h3 className="text-sm font-bold text-[#0F172A] flex items-center gap-2 border-b border-[#F1F5F9] pb-3">
-            <Building2 size={16} className="text-[#1B4FD8]" />
-            Hospital Entity Tax Registration
-          </h3>
+          <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
+            <h3 className="text-sm font-bold text-[#0F172A] flex items-center gap-2">
+              <Building2 size={16} className="text-[#1B4FD8]" />
+              Hospital Entity Tax Registration
+            </h3>
+            <Button size="sm" variant="primary" onClick={saveConfig}>
+              <Save size={13} /> Save Config
+            </Button>
+          </div>
 
           <div className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-[#475569] block mb-1">GSTIN Number</label>
               <input
                 type="text"
-                value={gstin}
-                onChange={e => setGstin(e.target.value)}
-                className="w-full text-xs font-mono font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
+                value={config.gstin}
+                onChange={(e) => setConfig({ ...config, gstin: e.target.value.toUpperCase() })}
+                className="w-full text-xs font-mono font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8] bg-white"
               />
             </div>
 
@@ -52,132 +135,134 @@ export default function TaxManagementView() {
               <label className="text-xs font-semibold text-[#475569] block mb-1">Legal Business Name</label>
               <input
                 type="text"
-                value={legalName}
-                onChange={e => setLegalName(e.target.value)}
-                className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
+                value={config.legalName}
+                onChange={(e) => setConfig({ ...config, legalName: e.target.value })}
+                className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8] bg-white"
               />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-[#475569] block mb-1">Default Place of Supply</label>
-              <input
-                type="text"
-                value={placeOfSupply}
-                onChange={e => setPlaceOfSupply(e.target.value)}
-                className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* GST Tax Slabs & Rate Rules */}
-        <div className="bg-white border border-[#DDE2EC] p-5 rounded-xl space-y-4 shadow-xs">
-          <h3 className="text-sm font-bold text-[#0F172A] flex items-center gap-2 border-b border-[#F1F5F9] pb-3">
-            <Percent size={16} className="text-[#047857]" />
-            Intra-State & Inter-State GST Rates
-          </h3>
-
-          <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-[#475569] block mb-1">CGST Rate (%)</label>
+                <label className="text-xs font-semibold text-[#475569] block mb-1">Place of Supply (State)</label>
                 <input
-                  type="number"
-                  step="0.1"
-                  value={cgstRate}
-                  onChange={e => setCgstRate(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
+                  type="text"
+                  value={config.placeOfSupply}
+                  onChange={(e) => setConfig({ ...config, placeOfSupply: e.target.value })}
+                  className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8] bg-white"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-[#475569] block mb-1">SGST Rate (%)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={sgstRate}
-                  onChange={e => setSgstRate(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#475569] block mb-1">IGST Rate (%) (Inter-State)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={igstRate}
-                onChange={e => setIgstRate(parseFloat(e.target.value) || 0)}
-                className="w-full text-xs font-semibold px-3 py-2 border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1B4FD8]"
-              />
-            </div>
-
-            <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs space-y-1">
-              <div className="flex justify-between font-semibold text-[#334155]">
-                <span>Intra-State GST:</span>
-                <span className="text-[#047857]">{(cgstRate + sgstRate).toFixed(1)}% (CGST + SGST)</span>
-              </div>
-              <div className="flex justify-between font-semibold text-[#334155]">
-                <span>Inter-State GST:</span>
-                <span className="text-[#1B4FD8]">{igstRate.toFixed(1)}% (IGST)</span>
+                <label className="text-xs font-semibold text-[#475569] block mb-1">Taxation Scheme</label>
+                <Select
+                  value={config.taxScheme}
+                  onChange={(e) => setConfig({ ...config, taxScheme: e.target.value as any })}
+                >
+                  <option value="Regular">Regular Taxpayer</option>
+                  <option value="Composition">Composition Scheme</option>
+                </Select>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Configured General Ledger Tax Codes from API */}
+        <Loaded state={chartState}>
+          {({ tax_codes }) => {
+            const list = Array.isArray(tax_codes) ? tax_codes : []
+            return (
+              <Card title={`Active Tax Codes (${list.length})`} padded={false}>
+                {list.length === 0 ? (
+                  <Empty>No tax codes configured.</Empty>
+                ) : (
+                  <Table dense>
+                    <thead>
+                      <tr>
+                        <Th>Code</Th>
+                        <Th>Name</Th>
+                        <Th right>Rate (%)</Th>
+                        <Th>Kind</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((tc) => (
+                        <tr key={tc.id} className="hover:bg-[#F8FAFC]">
+                          <td className="py-2.5 px-3 font-mono font-bold text-xs text-[#1B4FD8]">{tc.code}</td>
+                          <td className="py-2.5 px-3 text-xs font-semibold text-[#0F172A]">{tc.name}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-xs font-bold tabular-nums">
+                            {tc.rate}%
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
+                                tc.kind === "gst"
+                                  ? "bg-[#EFF6FF] text-[#1B4FD8]"
+                                  : tc.kind === "tds"
+                                  ? "bg-[#FEF3C7] text-[#92400E]"
+                                  : "bg-[#F1F5F9] text-[#475569]"
+                              }`}
+                            >
+                              {tc.kind}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+              </Card>
+            )
+          }}
+        </Loaded>
       </div>
 
-      {/* Tax Accounts Mapping Table */}
-      <div className="bg-white border border-[#DDE2EC] rounded-xl overflow-hidden shadow-xs">
-        <div className="p-4 border-b border-[#F1F5F9] bg-[#FAFAFA] flex items-center justify-between">
-          <h3 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2">
-            <FileCheck2 size={16} className="text-[#047857]" />
-            General Ledger Tax Account Mappings
-          </h3>
-          <span className="text-[11px] text-[#64748B]">Auto-linked with Chart of Accounts</span>
-        </div>
+      {/* Tax Accounts Mapping Table from Chart */}
+      <Loaded state={chartState}>
+        {({ accounts }) => {
+          const allAccounts = Array.isArray(accounts) ? accounts : []
+          const taxAccounts = allAccounts.filter(
+            (a) =>
+              a.code.startsWith("221") ||
+              a.code.startsWith("142") ||
+              a.name.toLowerCase().includes("gst") ||
+              a.name.toLowerCase().includes("tax")
+          )
 
-        <table className="w-full text-left text-xs">
-          <thead className="bg-[#F8FAFC] text-[#475569] font-bold border-b border-[#E2E8F0]">
-            <tr>
-              <th className="py-2.5 px-4">Tax Head</th>
-              <th className="py-2.5 px-4">Account Code</th>
-              <th className="py-2.5 px-4">Account Name</th>
-              <th className="py-2.5 px-4">Type</th>
-              <th className="py-2.5 px-4">Normal Balance</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#F1F5F9] text-[#334155]">
-            <tr className="hover:bg-[#F8FAFC]">
-              <td className="py-2.5 px-4 font-semibold text-[#0F172A]">CGST Output Liability</td>
-              <td className="py-2.5 px-4 font-mono font-bold text-[#1B4FD8]">2211</td>
-              <td className="py-2.5 px-4">Output CGST Payable</td>
-              <td className="py-2.5 px-4"><span className="px-2 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] font-semibold text-[10px]">Liability</span></td>
-              <td className="py-2.5 px-4 font-semibold text-[#B42318]">Credit</td>
-            </tr>
-            <tr className="hover:bg-[#F8FAFC]">
-              <td className="py-2.5 px-4 font-semibold text-[#0F172A]">SGST Output Liability</td>
-              <td className="py-2.5 px-4 font-mono font-bold text-[#1B4FD8]">2212</td>
-              <td className="py-2.5 px-4">Output SGST Payable</td>
-              <td className="py-2.5 px-4"><span className="px-2 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] font-semibold text-[10px]">Liability</span></td>
-              <td className="py-2.5 px-4 font-semibold text-[#B42318]">Credit</td>
-            </tr>
-            <tr className="hover:bg-[#F8FAFC]">
-              <td className="py-2.5 px-4 font-semibold text-[#0F172A]">IGST Output Liability</td>
-              <td className="py-2.5 px-4 font-mono font-bold text-[#1B4FD8]">2213</td>
-              <td className="py-2.5 px-4">Output IGST Payable</td>
-              <td className="py-2.5 px-4"><span className="px-2 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] font-semibold text-[10px]">Liability</span></td>
-              <td className="py-2.5 px-4 font-semibold text-[#B42318]">Credit</td>
-            </tr>
-            <tr className="hover:bg-[#F8FAFC]">
-              <td className="py-2.5 px-4 font-semibold text-[#0F172A]">Eligible Input Tax Credit (ITC)</td>
-              <td className="py-2.5 px-4 font-mono font-bold text-[#1B4FD8]">1420</td>
-              <td className="py-2.5 px-4">Input GST Credit Receivable</td>
-              <td className="py-2.5 px-4"><span className="px-2 py-0.5 rounded bg-[#EFF6FF] text-[#1B4FD8] font-semibold text-[10px]">Asset</span></td>
-              <td className="py-2.5 px-4 font-semibold text-[#047857]">Debit</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+          return (
+            <Card title="General Ledger Tax Account Mappings & Balances" padded={false}>
+              <Table dense>
+                <thead>
+                  <tr>
+                    <Th>Account Code</Th>
+                    <Th>Account Name</Th>
+                    <Th>Category</Th>
+                    <Th>Normal Balance</Th>
+                    <Th right>Live Balance</Th>
+                    <Th right>Total Postings</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taxAccounts.map((a) => (
+                    <tr key={a.id} className="hover:bg-[#F8FAFC]">
+                      <td className="py-2.5 px-3 font-mono font-bold text-xs text-[#1B4FD8]">{a.code}</td>
+                      <td className="py-2.5 px-3 text-xs font-semibold text-[#0F172A]">{a.name}</td>
+                      <td className="py-2.5 px-3">
+                        <Pill tone={a.category === "asset" ? "blue" : "amber"}>{a.category}</Pill>
+                      </td>
+                      <td className="py-2.5 px-3 text-xs capitalize text-[#475569]">{a.normal_balance}</td>
+                      <td className="py-2.5 px-3 text-right">
+                        <Money value={a.balance} strong />
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-xs tabular-nums text-[#64748B]">
+                        {a.line_count}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Card>
+          )
+        }}
+      </Loaded>
     </div>
   )
 }

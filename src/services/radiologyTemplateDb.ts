@@ -4,6 +4,7 @@ import { AuditDatabase } from "./auditDb"
 import * as pdfjsLib from "pdfjs-dist"
 import mammoth from "mammoth"
 import JSZip from "jszip"
+import { extractCleanTemplateText } from "./templateTextCleaner"
 import { ReconstructedDocument, CompletenessReport, getDocumentFullText } from "./templateExtractionService"
 
 let pdfWorkerUrl = ""

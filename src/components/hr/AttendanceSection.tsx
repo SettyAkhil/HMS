@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import toast from "react-hot-toast"
-import { Activity, Fingerprint, Plug, Plus, RefreshCw, Search, Trash2, Wifi, WifiOff } from "lucide-react"
+import { Activity, Fingerprint, Plug, Plus, RefreshCw, Search, Trash2, Wifi, WifiOff, X } from "lucide-react"
 import { hr } from "../../services/hr/client"
 import {
   EMPLOYEE_CATEGORIES,
@@ -113,14 +113,14 @@ function Live() {
         title={
           <span className="flex items-center gap-2">
             Presence {day === today ? "today" : `on ${fmtDate(day)}`}
-            <span className={`inline-flex items-center gap-1 text-[11px] font-normal ${connected ? "text-[#007078]" : "text-slate-400"}`}>
+            <span className={`inline-flex items-center gap-1 text-[11px] font-normal ${connected ? "text-[#16A34A]" : "text-[#64748B]"}`}>
               {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {connected ? "Live" : "Not live — refresh manually"}
             </span>
           </span>
         }
         actions={
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-[#64748B]">
             Last sync {ago(board.data?.last_sync_at)}
             <Btn variant="ghost" onClick={board.reload} aria-label="Refresh" className="ml-1">
               <RefreshCw className="w-3.5 h-3.5" />
@@ -130,8 +130,24 @@ function Live() {
       >
         <div className="flex flex-wrap gap-2 mb-3">
           <div className="relative flex-1 min-w-[180px]">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-            <input className={`${inputCls} pl-8`} placeholder="Find employee" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#64748B]" />
+            <input
+              className={`${inputCls} pl-8 ${query ? "pr-8" : ""}`}
+              placeholder="Find employee (instant)"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2.5 top-2.5 text-[#64748B] hover:text-gray-900 cursor-pointer"
+                aria-label="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <input type="date" className={filterCls} value={day} max={today} onChange={(e) => setDay(e.target.value || today)} aria-label="Date" />
           <select className={filterCls} value={filters.department_id} onChange={(e) => setFilters({ ...filters, department_id: e.target.value })} aria-label="Department">
@@ -165,7 +181,7 @@ function Live() {
             <option value="not_arrived">Not arrived</option>
           </select>
         </div>
-        <p className="text-[11px] text-slate-500 mb-2">
+        <p className="text-[11px] text-[#64748B] mb-2">
           Presence is read from biometric checkpoint punches (an odd number of punches means the last one checked in). It is not location tracking. Calculated attendance against shifts — lateness, overtime, absences — is under Daily register.
         </p>
         {board.loading && !board.data ? (
@@ -179,19 +195,19 @@ function Live() {
             {rows.map((r) => (
               <tr key={r.employee_id}>
                 <td className="px-4 py-2">
-                  <div className="text-slate-900">{r.full_name}</div>
-                  <div className="text-[11px] text-slate-400 font-mono">{r.employee_code}</div>
+                  <div className="text-gray-900 font-semibold">{r.full_name}</div>
+                  <div className="text-[11px] text-[#64748B] font-mono">{r.employee_code}</div>
                 </td>
-                <td className="px-4 py-2 text-slate-600">{r.department ?? "—"}</td>
-                <td className="px-4 py-2 text-slate-600">{r.designation ?? categoryLabel(r.category)}</td>
-                <td className="px-4 py-2 text-slate-600">{r.branch ?? "—"}</td>
+                <td className="px-4 py-2 text-gray-700">{r.department ?? "—"}</td>
+                <td className="px-4 py-2 text-gray-700">{r.designation ?? categoryLabel(r.category)}</td>
+                <td className="px-4 py-2 text-gray-700">{r.branch ?? "—"}</td>
                 <td className="px-4 py-2 tabular-nums">{fmtTime(r.first_check_in)}</td>
                 <td className="px-4 py-2 tabular-nums">{fmtTime(r.last_check_out)}</td>
-                <td className="px-4 py-2 tabular-nums">{r.punch_count}</td>
+                <td className="px-4 py-2 tabular-nums font-mono">{r.punch_count}</td>
                 <td className="px-4 py-2">
                   <StatusBadge value={r.status} />
                 </td>
-                <td className="px-4 py-2 text-[11px] text-slate-500 whitespace-nowrap">{r.last_synced_at ? ago(r.last_synced_at) : "—"}</td>
+                <td className="px-4 py-2 text-[11px] text-[#64748B] whitespace-nowrap">{r.last_synced_at ? ago(r.last_synced_at) : "—"}</td>
               </tr>
             ))}
           </Table>
@@ -217,7 +233,7 @@ function Punches() {
     setPage(1)
   }
   return (
-    <Panel title="Raw punch log" actions={<span className="text-[11px] text-slate-500">Exactly as received from the devices; never edited</span>}>
+    <Panel title="Raw punch log" actions={<span className="text-[11px] text-[#64748B]">Exactly as received from the devices; never edited</span>}>
       <div className="flex flex-wrap gap-2 mb-3">
         <Field label="From">
           <input type="date" className={inputCls} value={f.date_from} onChange={(e) => set({ date_from: e.target.value })} />
@@ -258,12 +274,12 @@ function Punches() {
             {list.data.items.map((p) => (
               <tr key={p.id}>
                 <td className="px-4 py-2 whitespace-nowrap tabular-nums">{fmtDateTime(p.punch_time)}</td>
-                <td className="px-4 py-2">{p.employee_name ? `${p.employee_name} (${p.employee_code})` : <StatusBadge value="pending" label="Unmapped" />}</td>
+                <td className="px-4 py-2 font-medium">{p.employee_name ? `${p.employee_name} (${p.employee_code})` : <StatusBadge value="pending" label="Unmapped" />}</td>
                 <td className="px-4 py-2 font-mono text-xs">{p.device_user_id}</td>
-                <td className="px-4 py-2 text-slate-600">{p.device_name ?? p.device_serial ?? "—"}</td>
-                <td className="px-4 py-2 text-slate-600">{p.source}</td>
-                <td className="px-4 py-2 text-[11px] text-slate-500 whitespace-nowrap">{fmtDateTime(p.received_at)}</td>
-                <td className="px-4 py-2 font-mono text-[11px] text-slate-400 max-w-[220px] truncate" title={p.raw_payload}>
+                <td className="px-4 py-2 text-gray-700">{p.device_name ?? p.device_serial ?? "—"}</td>
+                <td className="px-4 py-2 text-gray-700">{p.source}</td>
+                <td className="px-4 py-2 text-[11px] text-[#64748B] whitespace-nowrap">{fmtDateTime(p.received_at)}</td>
+                <td className="px-4 py-2 font-mono text-[11px] text-[#64748B] max-w-[220px] truncate" title={p.raw_payload}>
                   {p.raw_payload}
                 </td>
               </tr>
@@ -340,21 +356,21 @@ function Devices() {
             {integrations.data.map((i) => {
               const own = devices.data?.filter((d) => d.integration_id === i.id) ?? []
               return (
-                <div key={i.id} className="border border-slate-200 rounded-[8px] p-3">
+                <div key={i.id} className="border border-[#DDE2EC] rounded p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2">
-                        <Plug className="w-4 h-4 text-[#007078]" />
-                        <span className="font-medium text-slate-900">{i.name}</span>
+                        <Plug className="w-4 h-4 text-[#1B4FD8]" />
+                        <span className="font-semibold text-gray-900">{i.name}</span>
                         {i.is_simulator && <StatusBadge value="simulator" label="Simulator" />}
                         {!i.enabled && <StatusBadge value="archived" label="Disabled" />}
                         {i.consecutive_failures > 0 && <StatusBadge value="failed" label={`${i.consecutive_failures} failed syncs`} />}
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
+                      <div className="text-xs text-[#64748B] mt-0.5">
                         {PROVIDERS.find(([k]) => k === i.provider)?.[1]} · <span className="font-mono">{i.base_url}</span> · polls every {Math.round(i.poll_interval_seconds / 60)} min
                       </div>
-                      <div className="text-xs text-slate-500">
-                        {i.verified_at ? `Verified ${ago(i.verified_at)} · ${i.operations.length} operations declared` : <span className="text-amber-700">Not verified — run Test connection</span>}
+                      <div className="text-xs text-[#64748B]">
+                        {i.verified_at ? `Verified ${ago(i.verified_at)} · ${i.operations.length} operations declared` : <span className="text-amber-700 font-medium">Not verified — run Test connection</span>}
                         {" · "}Last success {ago(i.last_success_at)}
                       </div>
                       {i.last_error && <div className="text-xs text-rose-700 mt-1">{i.last_error}</div>}
@@ -381,14 +397,14 @@ function Devices() {
                       <Table head={["Device", "Serial", "Location", "Status", "Last data", "Last punch", ""]}>
                         {own.map((d) => (
                           <tr key={d.id}>
-                            <td className="px-4 py-2">{d.name}</td>
+                            <td className="px-4 py-2 font-medium">{d.name}</td>
                             <td className="px-4 py-2 font-mono text-xs">{d.serial_number}</td>
-                            <td className="px-4 py-2 text-slate-600">{d.location ?? "—"}</td>
+                            <td className="px-4 py-2 text-gray-700">{d.location ?? "—"}</td>
                             <td className="px-4 py-2">
                               <StatusBadge value={d.enabled ? d.status : "archived"} label={d.enabled ? undefined : "Disabled"} />
                             </td>
-                            <td className="px-4 py-2 text-xs text-slate-500">{ago(d.last_seen_at)}</td>
-                            <td className="px-4 py-2 text-xs text-slate-500">{fmtDateTime(d.last_punch_at)}</td>
+                            <td className="px-4 py-2 text-xs text-[#64748B]">{ago(d.last_seen_at)}</td>
+                            <td className="px-4 py-2 text-xs text-[#64748B]">{fmtDateTime(d.last_punch_at)}</td>
                             <td className="px-4 py-2 text-right whitespace-nowrap">
                               <Btn variant="ghost" onClick={() => act(`dev-${d.id}`, () => hr.patch(`/api/v1/attendance/devices/${d.id}`, { enabled: !d.enabled }))}>
                                 {d.enabled ? "Disable" : "Enable"}
@@ -411,7 +427,7 @@ function Devices() {
             })}
           </div>
         )}
-        <p className="text-[11px] text-slate-500 mt-3">
+        <p className="text-[11px] text-[#64748B] mt-3">
           Device status reflects whether the eSSL server returned data for that serial on the last sync, not a direct ping of the terminal. No fingerprint or face templates are read or stored.
         </p>
       </Panel>
@@ -535,7 +551,7 @@ function IntegrationDrawer({ integration, branches, onClose, onSaved }: { integr
             ))}
           </select>
         </Field>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-gray-700 font-medium">
           <input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> Poll automatically
         </label>
       </div>
@@ -653,11 +669,11 @@ function Mappings() {
             {unmapped.data.map((u) => (
               <tr key={`${u.integration_id}-${u.device_user_id}`}>
                 <td className="px-4 py-2 font-mono text-sm">{u.device_user_id}</td>
-                <td className="px-4 py-2 text-slate-600">{integName(u.integration_id)}</td>
+                <td className="px-4 py-2 text-gray-700">{integName(u.integration_id)}</td>
                 <td className="px-4 py-2 tabular-nums">{u.punch_count}</td>
                 <td className="px-4 py-2 text-xs whitespace-nowrap">{fmtDateTime(u.first_punch)}</td>
                 <td className="px-4 py-2 text-xs whitespace-nowrap">{fmtDateTime(u.last_punch)}</td>
-                <td className="px-4 py-2 font-mono text-xs text-slate-500">{u.devices.join(", ")}</td>
+                <td className="px-4 py-2 font-mono text-xs text-[#64748B]">{u.devices.join(", ")}</td>
                 <td className="px-4 py-2 text-right">
                   <Btn variant="primary" onClick={() => setMapping({ integration_id: u.integration_id, device_user_id: u.device_user_id })}>
                     <Fingerprint className="w-3.5 h-3.5" /> Map to employee
@@ -673,7 +689,7 @@ function Mappings() {
         title="Mapped device users"
         actions={
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <label className="flex items-center gap-1.5 text-xs text-gray-700 font-medium">
               <input type="checkbox" checked={showEnded} onChange={(e) => setShowEnded(e.target.checked)} /> Show ended
             </label>
             <Btn variant="primary" onClick={() => setMapping({ integration_id: integrations.data?.[0]?.id ?? "", device_user_id: "" })} disabled={!integrations.data?.length}>
@@ -691,15 +707,15 @@ function Mappings() {
         ) : (
           <Table head={["Device user", "Employee", "Integration", "From", "To", "Mapped by", ""]}>
             {mappings.data.map((m) => (
-              <tr key={m.id} className={m.effective_to ? "text-slate-400" : ""}>
+              <tr key={m.id} className={m.effective_to ? "text-gray-400" : ""}>
                 <td className="px-4 py-2 font-mono">{m.device_user_id}</td>
                 <td className="px-4 py-2">
-                  {m.employee_name} <span className="font-mono text-[11px] text-slate-400">{m.employee_code}</span>
+                  <span className="font-medium text-gray-900">{m.employee_name}</span> <span className="font-mono text-[11px] text-[#64748B]">{m.employee_code}</span>
                 </td>
-                <td className="px-4 py-2 text-slate-600">{integName(m.integration_id)}</td>
+                <td className="px-4 py-2 text-gray-700">{integName(m.integration_id)}</td>
                 <td className="px-4 py-2 whitespace-nowrap">{fmtDate(m.effective_from)}</td>
                 <td className="px-4 py-2 whitespace-nowrap">{m.effective_to ? fmtDate(m.effective_to) : "Current"}</td>
-                <td className="px-4 py-2 text-xs text-slate-500">{m.created_by}</td>
+                <td className="px-4 py-2 text-xs text-[#64748B]">{m.created_by}</td>
                 <td className="px-4 py-2 text-right">{!m.effective_to && <Btn variant="ghost" onClick={() => end(m)}>End</Btn>}</td>
               </tr>
             ))}
@@ -727,7 +743,7 @@ function MapDrawer({ initial, integrations, onClose, onSaved }: { initial: { int
   const [q, setQ] = useState("")
   const [busy, setBusy] = useState(false)
   const people = useHr(
-    () => (q.trim().length >= 2 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, status: "active", page_size: 10 }) : Promise.resolve(null)),
+    () => (q.trim().length >= 1 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, status: "active", page_size: 10 }) : Promise.resolve(null)),
     [q],
   )
   const save = async () => {
@@ -769,26 +785,26 @@ function MapDrawer({ initial, integrations, onClose, onSaved }: { initial: { int
         <Field label="Device user ID (PIN)" required>
           <input className={inputCls} value={f.device_user_id} onChange={(e) => setF({ ...f, device_user_id: e.target.value.trim() })} />
         </Field>
-        <Field label="Employee" required hint="Type at least two letters of the name or code">
-          <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search active employees" />
+        <Field label="Employee" required hint="Type at least one letter of the name or code">
+          <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search active employees (instant)" />
         </Field>
         {people.data?.items.length ? (
-          <ul className="border border-slate-200 rounded-[6px] divide-y divide-slate-100 max-h-56 overflow-y-auto">
+          <ul className="border border-[#DDE2EC] rounded divide-y divide-[#EEF1F6] max-h-56 overflow-y-auto">
             {people.data.items.map((p) => (
               <li key={p.id}>
                 <button
                   onClick={() => setF({ ...f, employee_id: p.id })}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 ${f.employee_id === p.id ? "bg-teal-50" : ""}`}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer transition-colors ${f.employee_id === p.id ? "bg-blue-50" : ""}`}
                 >
-                  {p.full_name} <span className="font-mono text-[11px] text-slate-400">{p.employee_code}</span>
+                  <span className="font-semibold text-gray-900">{p.full_name}</span> <span className="font-mono text-[11px] text-[#64748B]">{p.employee_code}</span>
                   {p.biometric_mapped && <span className="text-[11px] text-amber-700"> · already has a biometric ID</span>}
-                  <div className="text-[11px] text-slate-500">{[p.designation, p.department].filter(Boolean).join(" · ")}</div>
+                  <div className="text-[11px] text-[#64748B]">{[p.designation, p.department].filter(Boolean).join(" · ")}</div>
                 </button>
               </li>
             ))}
           </ul>
-        ) : q.trim().length >= 2 && !people.loading ? (
-          <p className="text-xs text-slate-500">No active employee matches.</p>
+        ) : q.trim().length >= 1 && !people.loading ? (
+          <p className="text-xs text-[#64748B]">No active employee matches.</p>
         ) : null}
         <Field label="Valid from" hint="Defaults to the employee's joining date">
           <input type="date" className={inputCls} value={f.effective_from} onChange={(e) => setF({ ...f, effective_from: e.target.value })} />
@@ -816,11 +832,11 @@ function SyncHistory() {
             {logs.data.items.map((l) => (
               <tr key={l.id}>
                 <td className="px-4 py-2 whitespace-nowrap">{fmtDateTime(l.started_at)}</td>
-                <td className="px-4 py-2 text-slate-600">{l.trigger}</td>
+                <td className="px-4 py-2 text-gray-700">{l.trigger}</td>
                 <td className="px-4 py-2">
                   <StatusBadge value={l.status} />
                 </td>
-                <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
+                <td className="px-4 py-2 text-xs text-[#64748B] whitespace-nowrap">
                   {fmtDateTime(l.window_from)} → {fmtDateTime(l.window_to)}
                 </td>
                 <td className="px-4 py-2 tabular-nums">{l.fetched}</td>
@@ -842,21 +858,21 @@ function SyncHistory() {
       {open && (
         <Drawer open title={`Sync ${fmtDateTime(open.started_at)}`} onClose={() => setOpen(null)}>
           {open.error && <p className="text-sm text-rose-700 mb-3">{open.error}</p>}
-          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Devices</h4>
+          <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">Devices</h4>
           <ul className="text-sm space-y-1 mb-4">
             {open.details?.devices?.map((d) => (
               <li key={d.serial}>
                 <span className="font-mono">{d.serial}</span> — {d.ok ? "ok" : <span className="text-rose-700">{d.error}</span>}
               </li>
-            )) ?? <li className="text-slate-500">—</li>}
+            )) ?? <li className="text-[#64748B]">—</li>}
           </ul>
           {!!open.details?.rejected?.length && (
             <>
-              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Rows the device sent that could not be read (kept verbatim)</h4>
-              <pre className="text-[11px] bg-slate-50 border border-slate-200 rounded-[6px] p-2 overflow-x-auto">{open.details.rejected.join("\n")}</pre>
+              <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">Rows the device sent that could not be read (kept verbatim)</h4>
+              <pre className="text-[11px] bg-[#F8FAFC] border border-[#DDE2EC] rounded p-2 overflow-x-auto">{open.details.rejected.join("\n")}</pre>
             </>
           )}
-          <p className="text-[11px] text-slate-500 mt-4">Run by {open.created_by}</p>
+          <p className="text-[11px] text-[#64748B] mt-4">Run by {open.created_by}</p>
         </Drawer>
       )}
     </Panel>

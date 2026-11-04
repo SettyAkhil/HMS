@@ -133,7 +133,7 @@ export function DocumentsTab({ employeeId, canManage, self }: { employeeId: stri
       title="Documents"
       actions={
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> Older versions</label>
+          <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> Older versions</label>
           {(canManage || self) && <Btn variant="primary" onClick={() => setUp({ file: null, category: "registration", title: "", issue_date: "", expiry_date: "", access_level: "employee", replaces: "" })}><Upload className="w-3.5 h-3.5" /> Upload</Btn>}
         </div>
       }
@@ -141,8 +141,8 @@ export function DocumentsTab({ employeeId, canManage, self }: { employeeId: stri
       {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty title="No documents" /> : (
         <Table head={["Document", "Category", "Version", "Expires", "Visibility", "Verified", ""]}>
           {list.data.map((d) => (
-            <tr key={d.id} className={d.is_current ? "" : "text-slate-400"}>
-              <td className="px-4 py-2">{d.title}<div className="text-[11px] text-slate-400">{d.filename} · {Math.ceil(d.size_bytes / 1024)} KB</div></td>
+            <tr key={d.id} className={d.is_current ? "" : "text-gray-400"}>
+              <td className="px-4 py-2">{d.title}<div className="text-[11px] text-gray-400">{d.filename} · {Math.ceil(d.size_bytes / 1024)} KB</div></td>
               <td className="px-4 py-2">{humanize(d.category)}</td>
               <td className="px-4 py-2">v{d.version}{!d.is_current && " (old)"}</td>
               <td className={`px-4 py-2 whitespace-nowrap ${d.days_to_expiry !== null && d.days_to_expiry < 30 ? "text-rose-700" : ""}`}>{fmtDate(d.expiry_date)}</td>

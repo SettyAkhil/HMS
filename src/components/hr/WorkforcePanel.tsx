@@ -48,33 +48,31 @@ export default function WorkforcePanel({ onOpen }: { onOpen?: () => void }) {
       clearInterval(t)
     }
   }, [])
-
   if (!data || !data.workforce || typeof data.workforce.on_duty_now !== "number") {
     return null
   }
-
-  const stat = (label: string, value: string | number, tone = "text-slate-900") => (
+  const stat = (label: string, value: string | number, tone = "text-gray-900") => (
     <div className="px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
+      <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">{label}</div>
+      <div className={`text-lg font-bold tabular-nums ${tone}`}>{value}</div>
     </div>
   )
 
   return (
-    <section className="bg-white border border-slate-200 rounded-xl">
-      <header className="flex items-center justify-between px-4 py-2 border-b border-slate-100">
-        <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-          <UsersRound className="w-4 h-4 text-[#007078]" /> Workforce now
+    <section className="bg-white border border-[#DDE2EC] rounded">
+      <header className="flex items-center justify-between px-4 py-2 border-b border-[#DDE2EC] bg-[#F8FAFC]">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-800 flex items-center gap-1.5">
+          <UsersRound className="w-4 h-4 text-[#1B4FD8]" /> Workforce now
         </h3>
         {onOpen && (
-          <button onClick={onOpen} className="text-xs text-[#007078] hover:underline cursor-pointer">
+          <button onClick={onOpen} className="text-xs text-[#1B4FD8] font-medium hover:underline">
             Open HR & Staff
           </button>
         )}
       </header>
-      <div className="grid grid-cols-3 md:grid-cols-7 divide-x divide-slate-100">
+      <div className="grid grid-cols-3 md:grid-cols-7 divide-x divide-[#DDE2EC]">
         {stat("On duty", data.workforce?.on_duty_now ?? 0)}
-        {stat("Checked in", data.workforce?.checked_in_now ?? 0, "text-[#007078]")}
+        {stat("Checked in", data.workforce?.checked_in_now ?? 0, "text-[#1B4FD8]")}
         {stat(
           "Attendance",
           data.attendance_today?.rate !== null && data.attendance_today?.rate !== undefined
@@ -99,7 +97,7 @@ export default function WorkforcePanel({ onOpen }: { onOpen?: () => void }) {
         )}
       </div>
       {Array.isArray(data.shortages) && data.shortages.length > 0 && (
-        <ul className="px-4 py-2 border-t border-slate-100 text-xs text-rose-800 space-y-0.5">
+        <ul className="px-4 py-2 border-t border-[#DDE2EC] bg-rose-50/40 text-xs text-rose-800 space-y-0.5">
           {data.shortages.slice(0, 4).map((s, i) => (
             <li key={i} className="flex items-center gap-1">
               <AlertTriangle className="w-3.5 h-3.5" /> {s.department}, {s.shift}: {s.assigned}/{s.required}{" "}

@@ -666,7 +666,7 @@ export default function BedManagementPage({
   }, [beds])
 
   useEffect(() => {
-    if (patientQuery.trim().length < 2) {
+    if (!patientQuery.trim()) {
       setPatientResults([])
       return
     }
@@ -679,7 +679,7 @@ export default function BedManagementPage({
       } catch {
         setPatientResults([])
       }
-    }, 300)
+    }, 120)
     return () => clearTimeout(handle)
   }, [patientQuery])
 

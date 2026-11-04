@@ -98,7 +98,7 @@ export default function Dashboard({
       const todayDischarges = discharges.filter((d) => (d.dischargeDate || "").startsWith(todayStr))
       const erVisits = ErDatabase.getVisits("active")
       const labOrders = LabOrderDatabase.getOrders()
-      const criticalLabOrders = labOrders.filter((o) => o.priority === "STAT" && o.status !== "Completed")
+      const criticalLabOrders = labOrders.filter((o) => ((o as any).priority === "STAT" || o.tests?.some((t) => t.urgency === "STAT")) && o.status !== "Completed")
       const criticalEr = erVisits.filter((v) => v.triage_category === "ESI-1" || v.triage_category === "ESI-2")
 
       const patientsToday = encounters.length + erVisits.length + occupiedBeds.length

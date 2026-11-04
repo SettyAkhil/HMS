@@ -1,6 +1,7 @@
 import React, { useState } from "react"
 import { db, DBOPEncounter } from "../services/db"
 import { DoctorPortalDatabase } from "../services/doctorPortalDb"
+import { encounterArrivalMs } from "../services/encounterTime"
 import { BillingDatabase, RadiologyStudyRecord } from "../services/billingDb"
 import { printRadiologyDocument } from "../utils/radiologyPrint"
 import RadiologyReportPdfModal from "./radiology/RadiologyReportPdfModal"
@@ -45,8 +46,7 @@ export default function PatientJourneyModal({
     .getEncountersForPatient(liveEncounter.umr)
     .sort(
       (a, b) =>
-        new Date(b.timestamps?.arrival || b.registrationTime).getTime() -
-        new Date(a.timestamps?.arrival || a.registrationTime).getTime(),
+        (encounterArrivalMs(b) || 0) - (encounterArrivalMs(a) || 0),
     )
 
   const previousEncounters = allPatientEncounters.filter(
@@ -218,9 +218,9 @@ export default function PatientJourneyModal({
                       <span>🏥</span> Arrival & OPD Check-In
                     </div>
                     <span className="font-mono text-[11.5px] font-bold text-[#1B4FD8] bg-blue-50 px-2 py-0.5 rounded-none border border-blue-200">
-                      {liveEncounter.timestamps?.arrival ||
-                        liveEncounter.registrationTime ||
-                        "Arrival Recorded"}
+                      {liveEncounter.date
+                        ? `${liveEncounter.date} · ${liveEncounter.registrationTime}`
+                        : liveEncounter.timestamps?.arrival || liveEncounter.registrationTime || "Arrival Recorded"}
                     </span>
                   </div>
                   <p className="text-[12px] text-gray-700">
@@ -254,9 +254,9 @@ export default function PatientJourneyModal({
                       Verification
                     </div>
                     <span className="font-mono text-[11.5px] font-bold text-[#1B4FD8] bg-blue-50 px-2 py-0.5 rounded-none border border-blue-200">
-                      {liveEncounter.timestamps?.registration ||
-                        liveEncounter.registrationTime ||
-                        "Registration Recorded"}
+                      {liveEncounter.date
+                        ? `${liveEncounter.date} · ${liveEncounter.registrationTime}`
+                        : liveEncounter.timestamps?.registration || liveEncounter.registrationTime || "Registration Recorded"}
                     </span>
                   </div>
                   <p className="text-[12px] text-gray-700">
@@ -761,7 +761,7 @@ export default function PatientJourneyModal({
 
                         <div className="text-right">
                           <span className="font-mono text-[11.5px] font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded-none border border-gray-300 inline-block">
-                            {pastEnc.registrationTime || "Past Visit"}
+                            {pastEnc.date ? `${pastEnc.date} (${pastEnc.registrationTime})` : pastEnc.registrationTime || "Past Visit"}
                           </span>
                           <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-none border border-emerald-200 block mt-1">
                             {pastEnc.status}

@@ -1,0 +1,124 @@
+# HospAI public web server. Mirrors vite.config.ts's dev proxy exactly, so the
+# app behaves the same in production as in development. Rendered by the nginx
+# image at start-up; ${AI_SERVER_URL} comes from deploy/.env.
+
+# Docker's DNS, so upstreams that start later are still found.
+resolver 127.0.0.11 valid=30s ipv6=off;
+
+# Behind an HTTPS terminator / load balancer on a private network, take the
+# real client address and scheme from it (per-user login rate limits and
+# secure cookies depend on both). Direct clients are unaffected.
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+set_real_ip_from 127.0.0.1;
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name _;
+
+    # Prescription photos, PDFs, bulk imports.
+    client_max_body_size 200m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # ── HMS app (single-page app; patient pages live in #/ routes) ──────────
+    root /usr/share/nginx/html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+    }
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        try_files $uri =404;
+    }
+
+    # ── Embedded Keppler OCR app (built with base /keppler-ocr/) ───────────
+    location /keppler-ocr/ {
+        alias /usr/share/nginx/keppler-ocr/;
+        try_files $uri $uri/ /keppler-ocr/index.html;
+    }
+    location = /keppler-ocr {
+        return 301 /keppler-ocr/;
+    }
+
+    # ── APIs (order matters: most specific first) ───────────────────────────
+
+    # Node HRMS server: legacy HR API (prefix stripped) and eSSL device push.
+    location /hms-api/api/hr {
+        set $hrms http://hrms:8011;
+        rewrite ^/hms-api(/.*)$ $1 break;
+        proxy_pass $hrms;
+        include /etc/nginx/conf.d/proxy_headers.inc;
+    }
+    location /iclock {
+        set $hrms http://hrms:8011;
+        proxy_pass $hrms;
+        include /etc/nginx/conf.d/proxy_headers.inc;
+    }
+
+    # HR live attendance is a server-sent event stream: never buffer it.
+    location ~ ^/hms-api/api/v1/attendance/live/stream$ {
+        set $gw http://gateway:8010;
+        rewrite ^/hms-api(/.*)$ $1 break;
+        proxy_pass $gw;
+        include /etc/nginx/conf.d/proxy_headers.inc;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+
+    # Everything else of the hospital backend, through its gateway.
+    location /hms-api/ {
+        set $gw http://gateway:8010;
+        rewrite ^/hms-api(/.*)$ $1 break;
+        proxy_pass $gw;
+        include /etc/nginx/conf.d/proxy_headers.inc;
+    }
+
+    # Keppler OCR's own backend (the embedded app calls /api/...).
+    location /api/ {
+        set $ocr http://ocr-api:7620;
+        proxy_pass $ocr;
+        include /etc/nginx/conf.d/proxy_headers.inc;
+    }
+
+    # GPU model server, used directly by a few AI screens.
+    location /vllm-api/ {
+        set $ai ${AI_SERVER_URL};
+        rewrite ^/vllm-api(/.*)$ $1 break;
+        proxy_pass $ai;
+        include /etc/nginx/conf.d/proxy_headers.inc;
+        proxy_buffering off;
+    }
+}

@@ -80,7 +80,7 @@ function Runner() {
               ))}
             </Table>
           )}
-          {report.rows.length > 500 && <p className="text-xs text-slate-500 mt-2">Showing 500 of {report.rows.length}; the CSV has all rows.</p>}
+          {report.rows.length > 500 && <p className="text-xs text-gray-500 mt-2">Showing 500 of {report.rows.length}; the CSV has all rows.</p>}
         </Panel>
       )}
     </div>
@@ -137,12 +137,12 @@ export function Announcements({ canEdit }: { canEdit: boolean }) {
       <PageHeader title="Announcements" subtitle="Shown in My HR and the notification bell for the audience you choose" actions={canEdit && <Btn variant="primary" onClick={() => setF({ title: "", body: "", priority: "normal", everyone: true, departments: [] as string[], expires_at: "" })}><Megaphone className="w-3.5 h-3.5" /> New announcement</Btn>} />
       <Panel>
         {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty title="No announcements" /> : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-[#DDE2EC]">
             {list.data.map((a) => (
-              <li key={a.id} className="py-2">
-                <div className="flex justify-between gap-2"><span className="font-medium text-slate-900">{a.title}{a.priority === "important" && <span className="ml-2 text-[11px] text-rose-700">important</span>}</span><span className="text-[11px] text-slate-400">{fmtDateTime(a.published_at)} · {a.created_by}</span></div>
-                <p className="text-sm text-slate-600 whitespace-pre-wrap">{a.body}</p>
-                <p className="text-[11px] text-slate-400">{a.audience.all ? "Everyone" : `${(a.audience.departments ?? []).length} departments`}{a.expires_at && ` · until ${fmtDateTime(a.expires_at)}`}</p>
+              <li key={a.id} className="py-2.5">
+                <div className="flex justify-between gap-2"><span className="font-medium text-gray-900">{a.title}{a.priority === "important" && <span className="ml-2 text-[11px] text-rose-700 font-semibold">important</span>}</span><span className="text-[11px] text-gray-400">{fmtDateTime(a.published_at)} · {a.created_by}</span></div>
+                <p className="text-sm text-gray-600 whitespace-pre-wrap mt-0.5">{a.body}</p>
+                <p className="text-[11px] text-gray-400 mt-1">{a.audience.all ? "Everyone" : `${(a.audience.departments ?? []).length} departments`}{a.expires_at && ` · until ${fmtDateTime(a.expires_at)}`}</p>
               </li>
             ))}
           </ul>
@@ -154,9 +154,9 @@ export function Announcements({ canEdit }: { canEdit: boolean }) {
             <Field label="Title" required><input className={inputCls} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
             <Field label="Message" required><textarea rows={5} className={inputCls} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} /></Field>
             <Field label="Priority"><select className={inputCls} value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}><option value="normal">Normal</option><option value="important">Important</option></select></Field>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.everyone} onChange={(e) => setF({ ...f, everyone: e.target.checked })} /> Everyone</label>
+            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={f.everyone} onChange={(e) => setF({ ...f, everyone: e.target.checked })} /> Everyone</label>
             {!f.everyone && (
-              <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-[6px] p-2 space-y-1">
+              <div className="max-h-48 overflow-y-auto border border-[#DDE2EC] rounded p-2 space-y-1 bg-white">
                 {refs.data?.departments.map((d) => <label key={d.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.departments.includes(d.id)} onChange={(e) => setF({ ...f, departments: e.target.checked ? [...f.departments, d.id] : f.departments.filter((x: string) => x !== d.id) })} />{d.name}</label>)}
               </div>
             )}

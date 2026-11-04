@@ -72,7 +72,7 @@ function Runs() {
       ) : (
         <Table head={["Run", "Period", "Staff", "Gross", "Net", "Status", "Accounts", ""]}>
           {runs.data.map((r) => (
-            <tr key={r.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(r.id)}>
+            <tr key={r.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => setOpen(r.id)}>
               <td className="px-4 py-2 font-mono text-xs">{r.code}</td>
               <td className="px-4 py-2">
                 {MONTHS[r.month - 1]} {r.year}
@@ -105,15 +105,15 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const act = (key: string, path: string, msg: string, body?: unknown) => run(key, () => hr.post(`/api/v1/payroll/runs/${id}/${path}`, body), msg).then(() => data.reload())
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800">
+      <button onClick={onBack} className="flex items-center gap-1 text-xs text-[#64748B] hover:text-gray-900 cursor-pointer">
         <ArrowLeft className="w-3.5 h-3.5" /> Payroll runs
       </button>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">
-            {MONTHS[r.month - 1]} {r.year} <span className="font-mono text-sm text-slate-400">{r.code}</span>
+          <h3 className="text-base font-semibold text-gray-900">
+            {MONTHS[r.month - 1]} {r.year} <span className="font-mono text-sm text-[#64748B]">{r.code}</span>
           </h3>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-[#64748B]">
             <StatusBadge value={RUN_BADGE[r.status] ?? "draft"} label={humanize(r.status)} />
             {r.calculated_at && ` · calculated ${fmtDateTime(r.calculated_at)}`}
             {r.finalized_at && ` · finalized ${fmtDateTime(r.finalized_at)} by ${r.finalized_by}`}
@@ -130,7 +130,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
               Submit for approval
             </Btn>
           )}
-          {r.status === "in_review" && <span className="text-xs text-slate-500 self-center">Waiting for approval (Approvals)</span>}
+          {r.status === "in_review" && <span className="text-xs text-[#64748B] self-center">Waiting for approval (Approvals)</span>}
           {r.status === "approved" && (
             <Btn variant="primary" busy={busy === "fin"} onClick={() => window.confirm("Finalize? Payslips are issued, the month's attendance is locked and the journal is posted to Accounts. A finalized run can only be reversed.") && act("fin", "finalize", "Payroll finalized")}>
               Finalize
@@ -156,7 +156,7 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
       </div>
       {r.posting_status === "pending" && (
-        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-[6px] p-2">
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
           Journal not posted to Accounts: {r.posting_reference?.error ?? "unknown error"}. Someone with Accounts ledger rights can retry.
         </p>
       )}
@@ -176,9 +176,9 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
         ) : (
           <Table head={["Employee", "Paid days", "LOP", "OT", "Gross", "Deductions", "Net", "Status"]}>
             {r.items.map((i) => (
-              <tr key={i.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setItem(i)}>
+              <tr key={i.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => setItem(i)}>
                 <td className="px-4 py-2">
-                  {i.employee_name} <span className="text-[11px] text-slate-400 font-mono">{i.employee_code}</span>
+                  <span className="font-semibold text-gray-900">{i.employee_name}</span> <span className="text-[11px] text-[#64748B] font-mono">{i.employee_code}</span>
                 </td>
                 <td className="px-4 py-2 tabular-nums">{Number(i.payable_days)}</td>
                 <td className="px-4 py-2 tabular-nums">{Number(i.lop_days) || "—"}</td>
@@ -206,19 +206,19 @@ function RunDetail({ id, onBack }: { id: string; onBack: () => void }) {
 export function PayslipBody({ item }: { item: { earnings: Line[]; deductions: Line[]; employer_contributions: Line[]; gross: string; total_deductions: string; net: string; warnings?: string[]; payable_days?: string; lop_days?: string } }) {
   const lines = (title: string, rows: Line[], total?: string) => (
     <div>
-      <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">{title}</h4>
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-1">{title}</h4>
       <table className="w-full text-sm">
         <tbody>
           {rows.map((l, i) => (
             <tr key={i}>
-              <td className="py-0.5 text-slate-700">{l.name}</td>
-              <td className="py-0.5 text-right tabular-nums">{money(l.amount)}</td>
+              <td className="py-0.5 text-gray-700">{l.name}</td>
+              <td className="py-0.5 text-right font-mono tabular-nums">{money(l.amount)}</td>
             </tr>
           ))}
           {total !== undefined && (
-            <tr className="border-t border-slate-200 font-medium">
+            <tr className="border-t border-[#DDE2EC] font-semibold text-gray-900">
               <td className="py-1">Total</td>
-              <td className="py-1 text-right tabular-nums">{money(total)}</td>
+              <td className="py-1 text-right font-mono tabular-nums">{money(total)}</td>
             </tr>
           )}
         </tbody>
@@ -228,7 +228,7 @@ export function PayslipBody({ item }: { item: { earnings: Line[]; deductions: Li
   return (
     <div className="space-y-4">
       {item.payable_days !== undefined && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-[#64748B]">
           Paid days {Number(item.payable_days)} · loss of pay {Number(item.lop_days)}
         </p>
       )}
@@ -244,9 +244,9 @@ export function PayslipBody({ item }: { item: { earnings: Line[]; deductions: Li
       {lines("Earnings", item.earnings, item.gross)}
       {lines("Deductions", item.deductions, item.total_deductions)}
       {!!item.employer_contributions.length && lines("Employer contributions (not deducted)", item.employer_contributions)}
-      <div className="flex justify-between items-center p-3 rounded-[8px] bg-[#007078]/10 text-[#007078]">
-        <span className="font-medium">Net pay</span>
-        <span className="text-lg font-semibold tabular-nums">{money(item.net)}</span>
+      <div className="flex justify-between items-center p-3 rounded bg-blue-50 text-[#1B4FD8]">
+        <span className="font-semibold text-sm">Net pay</span>
+        <span className="text-lg font-bold font-mono tabular-nums">{money(item.net)}</span>
       </div>
     </div>
   )
@@ -254,13 +254,13 @@ export function PayslipBody({ item }: { item: { earnings: Line[]; deductions: Li
 
 function EmployeePicker({ value, onPick }: { value: EmployeeListItem | null; onPick: (e: EmployeeListItem) => void }) {
   const [q, setQ] = useState("")
-  const people = useHr(() => (q.length >= 2 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, page_size: 8, status: "" }) : Promise.resolve(null)), [q])
+  const people = useHr(() => (q.length >= 1 ? hr.get<Page<EmployeeListItem>>("/api/v1/hr/employees", { search: q, page_size: 8, status: "" }) : Promise.resolve(null)), [q])
   return (
     <div className="max-w-sm">
-      <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder={value ? `${value.full_name} (${value.employee_code})` : "Find an employee"} />
+      <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder={value ? `${value.full_name} (${value.employee_code})` : "Find an employee (instant)"} />
       {people.data?.items.map((p) => (
-        <button key={p.id} onClick={() => { onPick(p); setQ("") }} className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 rounded-[6px]">
-          {p.full_name} <span className="text-[11px] text-slate-400">{p.employee_code}</span>
+        <button key={p.id} onClick={() => { onPick(p); setQ("") }} className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 rounded transition-colors cursor-pointer">
+          <span className="font-semibold text-gray-900">{p.full_name}</span> <span className="text-[11px] text-[#64748B] font-mono">{p.employee_code}</span>
         </button>
       ))}
     </div>
@@ -317,7 +317,7 @@ function Compensation() {
                 <td className="px-4 py-2">{c.esi_enabled ? "Yes" : "No"}</td>
                 <td className="px-4 py-2">{c.pt_state ?? "—"}</td>
                 <td className="px-4 py-2 font-mono text-xs">{c.bank_account ?? "—"}</td>
-                <td className="px-4 py-2 text-slate-600">{c.reason ?? "—"}</td>
+                <td className="px-4 py-2 text-gray-700">{c.reason ?? "—"}</td>
               </tr>
             ))}
           </Table>
@@ -376,11 +376,11 @@ function Structures() {
         {!structs.data?.length ? (
           <Empty title="No structures" />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-[#EEF1F6]">
             {structs.data.map((x) => (
               <li key={x.id} className="py-2 text-sm">
-                <span className="font-medium">{x.name}</span> <span className="font-mono text-xs text-slate-400">{x.code}</span>
-                <div className="text-xs text-slate-500">{x.lines.map((l) => `${l.component}: ${l.calc === "balance" ? "balance" : `${Number(l.value)} ${calcLabel[l.calc]}`}`).join(" · ")}</div>
+                <span className="font-semibold text-gray-900">{x.name}</span> <span className="font-mono text-xs text-[#64748B]">{x.code}</span>
+                <div className="text-xs text-[#64748B]">{x.lines.map((l) => `${l.component}: ${l.calc === "balance" ? "balance" : `${Number(l.value)} ${calcLabel[l.calc]}`}`).join(" · ")}</div>
               </li>
             ))}
           </ul>
@@ -412,7 +412,7 @@ function Structures() {
             </div>
           ))}
           <Btn onClick={() => setS({ ...s, lines: [...s.lines, { component: comps.data?.find((x) => x.kind === "earning")?.code, calc: "balance", value: null }] })}>Add line</Btn>
-          <p className="text-[11px] text-slate-500 mt-3">One line may take the balance (the remainder of the gross), typically a special allowance.</p>
+          <p className="text-[11px] text-[#64748B] mt-3">One line may take the balance (the remainder of the gross), typically a special allowance.</p>
         </Drawer>
       )}
     </div>
@@ -447,7 +447,7 @@ function Statutory() {
   }
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 rounded-[6px] p-2">
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
         Statutory rates are not built in. Enter the rates your hospital is bound by, with the notification or circular they come from, and an effective date. Payroll refuses to deduct PF or ESI when no setting applies to the month.
       </p>
       <div className="grid lg:grid-cols-2 gap-4">
@@ -460,8 +460,8 @@ function Statutory() {
                 <Empty title="Not configured" hint={t.hint} />
               ) : (
                 <>
-                  <pre className="text-[11px] bg-slate-50 border border-slate-200 rounded-[6px] p-2 overflow-x-auto">{JSON.stringify(current.config, null, 2)}</pre>
-                  <p className="text-[11px] text-slate-500 mt-1">
+                  <pre className="text-[11px] bg-[#F8FAFC] border border-[#DDE2EC] rounded p-2 overflow-x-auto">{JSON.stringify(current.config, null, 2)}</pre>
+                  <p className="text-[11px] text-[#64748B] mt-1">
                     From {fmtDate(current.effective_from)} · {current.source_note ?? "no source noted"} · {current.created_by}
                     {rows.length > 1 && ` · ${rows.length - 1} earlier version(s)`}
                   </p>
@@ -473,7 +473,7 @@ function Statutory() {
       </div>
       {edit && (
         <Drawer open wide title={TEMPLATES[edit.kind].label} onClose={() => setEdit(null)} footer={<><Btn onClick={() => setEdit(null)}>Cancel</Btn><Btn variant="primary" busy={busy === "save"} onClick={save}>Save</Btn></>}>
-          <p className="text-xs text-slate-500 mb-2">{TEMPLATES[edit.kind].hint}</p>
+          <p className="text-xs text-[#64748B] mb-2">{TEMPLATES[edit.kind].hint}</p>
           <textarea rows={14} className={inputCls + " font-mono text-xs"} value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} />
           <div className="grid grid-cols-2 gap-3 mt-3">
             <Field label="Effective from"><input type="date" className={inputCls} value={edit.effective_from} onChange={(e) => setEdit({ ...edit, effective_from: e.target.value })} /></Field>
@@ -525,7 +525,7 @@ function LoansAdjustments() {
         )}
       </Panel>
       <Panel title="Payroll adjustments" actions={<Btn variant="primary" onClick={() => open("adj")}><Plus className="w-3.5 h-3.5" /> New</Btn>}>
-        <p className="text-[11px] text-slate-500 mb-2">Arrears, incentives, recoveries or TDS, applied by the first run for that month (or later) that includes the employee.</p>
+        <p className="text-[11px] text-[#64748B] mb-2">Arrears, incentives, recoveries or TDS, applied by the first run for that month (or later) that includes the employee.</p>
         {!adjs.data?.length ? <Empty title="None" /> : (
           <Table head={["Period", "Code", "Kind", "Amount", "Reason", "Status"]}>
             {adjs.data.map((a) => (
@@ -533,8 +533,8 @@ function LoansAdjustments() {
                 <td className="px-4 py-2">{MONTHS[a.month - 1].slice(0, 3)} {a.year}</td>
                 <td className="px-4 py-2 font-mono text-xs">{a.code}</td>
                 <td className="px-4 py-2 capitalize">{a.kind}</td>
-                <td className="px-4 py-2 tabular-nums">{money(a.amount)}</td>
-                <td className="px-4 py-2 text-slate-600">{a.reason}</td>
+                <td className="px-4 py-2 tabular-nums font-mono">{money(a.amount)}</td>
+                <td className="px-4 py-2 text-gray-700">{a.reason}</td>
                 <td className="px-4 py-2 capitalize">{a.status}</td>
               </tr>
             ))}

@@ -413,7 +413,7 @@ export class GlobalSearchService {
    */
   public static searchAll(query: string): GroupedSearchResults {
     const q = (query || "").trim().toLowerCase()
-    if (!q || q.length < 2) {
+    if (!q || q.length < 1) {
       return { patients: [], doctors: [], staff: [], total: 0 }
     }
 

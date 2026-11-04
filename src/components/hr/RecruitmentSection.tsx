@@ -38,11 +38,11 @@ function Requisitions() {
           {list.data.map((r) => (
             <tr key={r.id}>
               <td className="px-4 py-2 font-mono text-xs">{r.code}</td>
-              <td className="px-4 py-2">{dn(r.department_id)}</td>
+              <td className="px-4 py-2 font-medium">{dn(r.department_id)}</td>
               <td className="px-4 py-2">{des(r.designation_id)}</td>
-              <td className="px-4 py-2 tabular-nums">{r.positions}</td>
-              <td className="px-4 py-2 text-slate-600 max-w-xs truncate" title={r.justification}>{r.justification}</td>
-              <td className="px-4 py-2 text-xs text-slate-500">{r.created_by} · {fmtDate(r.created_at)}</td>
+              <td className="px-4 py-2 font-mono tabular-nums">{r.positions}</td>
+              <td className="px-4 py-2 text-gray-700 max-w-xs truncate" title={r.justification}>{r.justification}</td>
+              <td className="px-4 py-2 text-xs text-[#64748B]">{r.created_by} · {fmtDate(r.created_at)}</td>
               <td className="px-4 py-2"><StatusBadge value={r.status === "approved" || r.status === "filled" ? "success" : r.status} label={r.status} /></td>
             </tr>
           ))}
@@ -129,14 +129,14 @@ function Pipeline({ canManage, canActivate }: { canManage: boolean; canActivate:
           {STAGES.map((st) => {
             const col = apps.data?.filter((a) => a.stage === st) ?? []
             return (
-              <div key={st} className="bg-slate-50 border border-slate-200 rounded-[8px] p-2 min-h-[160px]">
-                <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">{humanize(st)} · {col.length}</div>
+              <div key={st} className="bg-[#F8FAFC] border border-[#DDE2EC] rounded p-2 min-h-[160px]">
+                <div className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-2">{humanize(st)} · {col.length}</div>
                 <div className="space-y-1.5">
                   {col.map((a) => (
-                    <button key={a.id} onClick={() => setOpen(a)} className="w-full text-left bg-white border border-slate-200 rounded-[6px] p-2 hover:border-[#007078]">
-                      <div className="text-sm text-slate-900">{a.candidate_name}</div>
-                      <div className="text-[11px] text-slate-500 truncate">{a.vacancy}</div>
-                      {a.experience_years && <div className="text-[11px] text-slate-400">{Number(a.experience_years)} yrs</div>}
+                    <button key={a.id} onClick={() => setOpen(a)} className="w-full text-left bg-white border border-[#DDE2EC] rounded p-2 hover:border-[#1B4FD8] shadow-2xs transition-colors cursor-pointer">
+                      <div className="text-sm font-semibold text-gray-900">{a.candidate_name}</div>
+                      <div className="text-[11px] text-[#64748B] truncate">{a.vacancy}</div>
+                      {a.experience_years && <div className="text-[11px] text-[#64748B]">{Number(a.experience_years)} yrs</div>}
                     </button>
                   ))}
                 </div>
@@ -146,7 +146,7 @@ function Pipeline({ canManage, canActivate }: { canManage: boolean; canActivate:
         </div>
       )}
       {!!apps.data?.filter((a) => ["rejected", "withdrawn"].includes(a.stage)).length && (
-        <p className="text-xs text-slate-500">{apps.data.filter((a) => ["rejected", "withdrawn"].includes(a.stage)).length} rejected or withdrawn applications are hidden from the board.</p>
+        <p className="text-xs text-[#64748B]">{apps.data.filter((a) => ["rejected", "withdrawn"].includes(a.stage)).length} rejected or withdrawn applications are hidden from the board.</p>
       )}
       {adding && <AddCandidate vacancies={vacancies.data ?? []} defaultVacancy={vac} onClose={() => setAdding(false)} onDone={() => { setAdding(false); reload() }} />}
       {open && <ApplicationDrawer app={open} canManage={canManage} canActivate={canActivate} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); reload() }} />}
@@ -215,7 +215,7 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
   const blocking = tasks.data?.filter((t) => t.required_for_activation && !["done", "waived"].includes(t.status)) ?? []
   return (
     <Drawer open wide title={`${app.candidate_name} · ${app.vacancy}`} onClose={onClose}>
-      <p className="text-sm text-slate-600 mb-3">
+      <p className="text-sm text-gray-700 mb-3">
         <StatusBadge value={app.stage === "hired" ? "success" : app.stage === "rejected" ? "failed" : "pending"} label={humanize(app.stage)} /> {app.email} {app.phone && `· ${app.phone}`} {app.source && `· via ${app.source}`}
       </p>
       {app.rejection_reason && <p className="text-xs text-rose-700 mb-3">Rejected: {app.rejection_reason}</p>}
@@ -228,12 +228,12 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
           <Btn variant="danger" busy={busy === "rejected"} onClick={() => move("rejected")}>Reject</Btn>
         </div>
       )}
-      <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Interviews</h4>
-      {!app.interviews.length ? <p className="text-sm text-slate-500 mb-4">None scheduled</p> : (
+      <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-1">Interviews</h4>
+      {!app.interviews.length ? <p className="text-sm text-[#64748B] mb-4">None scheduled</p> : (
         <ul className="text-sm mb-4 space-y-1">
           {app.interviews.map((i) => (
             <li key={i.id} className="flex justify-between gap-2">
-              <span>{i.round_name} · {fmtDateTime(i.scheduled_at)} {i.interviewers.length > 0 && <span className="text-slate-400">({i.interviewers.join(", ")})</span>}{i.feedback && <span className="block text-xs text-slate-500">{i.rating}/5 · {i.recommendation} — {i.feedback}</span>}</span>
+              <span>{i.round_name} · {fmtDateTime(i.scheduled_at)} {i.interviewers.length > 0 && <span className="text-[#64748B]">({i.interviewers.join(", ")})</span>}{i.feedback && <span className="block text-xs text-[#64748B]">{i.rating}/5 · {i.recommendation} — {i.feedback}</span>}</span>
               {i.status === "scheduled" && <Btn variant="ghost" onClick={() => setFb({ id: i.id, rating: 3, recommendation: "hold", feedback: "" })}>Record feedback</Btn>}
             </li>
           ))}
@@ -241,7 +241,7 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
       )}
       {app.offer && (
         <div className="mb-4 text-sm">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Offer</h4>
+          <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-1">Offer</h4>
           {money(app.offer.offered_gross)}/month · joins {fmtDate(app.offer.joining_date)} · expires {fmtDate(app.offer.expires_on)} · <StatusBadge value={app.offer.status === "accepted" ? "success" : app.offer.status === "sent" ? "pending" : "failed"} label={app.offer.status} />
           {app.offer.status === "sent" && canManage && (
             <div className="flex gap-2 mt-2">
@@ -253,14 +253,14 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
       )}
       {app.offer?.status === "accepted" && app.stage !== "hired" && (
         <div className="mb-4">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Onboarding checklist</h4>
+          <h4 className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider mb-1">Onboarding checklist</h4>
           <ul className="space-y-1 mb-3">
             {tasks.data?.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="flex items-center gap-1.5">
-                  {["done", "waived"].includes(t.status) ? <CheckCircle2 className="w-4 h-4 text-[#007078]" /> : <Circle className="w-4 h-4 text-slate-300" />}
-                  {t.title} {!t.required_for_activation && <span className="text-[11px] text-slate-400">(optional)</span>}
-                  {t.status === "waived" && <span className="text-[11px] text-slate-400">waived: {t.notes}</span>}
+                  {["done", "waived"].includes(t.status) ? <CheckCircle2 className="w-4 h-4 text-[#16A34A]" /> : <Circle className="w-4 h-4 text-gray-300" />}
+                  {t.title} {!t.required_for_activation && <span className="text-[11px] text-[#64748B]">(optional)</span>}
+                  {t.status === "waived" && <span className="text-[11px] text-[#64748B]">waived: {t.notes}</span>}
                 </span>
                 {canManage && t.status === "pending" && (
                   <span className="flex gap-1">
@@ -279,7 +279,7 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
         </div>
       )}
       {iv && (
-        <div className="border-t border-slate-200 pt-3 space-y-2">
+        <div className="border-t border-[#DDE2EC] pt-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <Field label="Round"><input className={inputCls} value={iv.round_name} onChange={(e) => setIv({ ...iv, round_name: e.target.value })} /></Field>
             <Field label="When"><input type="datetime-local" className={inputCls} value={iv.scheduled_at} onChange={(e) => setIv({ ...iv, scheduled_at: e.target.value })} /></Field>
@@ -290,7 +290,7 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
         </div>
       )}
       {fb && (
-        <div className="border-t border-slate-200 pt-3 space-y-2">
+        <div className="border-t border-[#DDE2EC] pt-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <Field label="Rating (1–5)"><input className={inputCls} inputMode="numeric" value={fb.rating} onChange={(e) => setFb({ ...fb, rating: Number(e.target.value.replace(/\D/g, "")) })} /></Field>
             <Field label="Recommendation"><select className={inputCls} value={fb.recommendation} onChange={(e) => setFb({ ...fb, recommendation: e.target.value })}><option value="hire">Hire</option><option value="hold">Hold</option><option value="reject">Reject</option></select></Field>
@@ -300,7 +300,7 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
         </div>
       )}
       {offer && (
-        <div className="border-t border-slate-200 pt-3 space-y-2">
+        <div className="border-t border-[#DDE2EC] pt-3 space-y-2">
           <div className="grid grid-cols-3 gap-2">
             <Field label="Monthly gross (₹)"><input className={inputCls} inputMode="decimal" value={offer.offered_gross} onChange={(e) => setOffer({ ...offer, offered_gross: e.target.value })} /></Field>
             <Field label="Joining date"><input type="date" className={inputCls} value={offer.joining_date} onChange={(e) => setOffer({ ...offer, joining_date: e.target.value })} /></Field>
@@ -311,8 +311,8 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
         </div>
       )}
       {activation && !password && (
-        <div className="border-t border-slate-200 pt-3 space-y-2">
-          <p className="text-xs text-slate-500">Creates the employee record from the offer. Optional: an HMS login (created as you, through the HMS user service), the eSSL PIN to map, a first-week shift, and the salary structure to set pay from the offer.</p>
+        <div className="border-t border-[#DDE2EC] pt-3 space-y-2">
+          <p className="text-xs text-[#64748B]">Creates the employee record from the offer. Optional: an HMS login (created as you, through the HMS user service), the eSSL PIN to map, a first-week shift, and the salary structure to set pay from the offer.</p>
           <div className="grid grid-cols-2 gap-2">
             <Field label="HMS username"><input className={inputCls} value={activation.hms_username} onChange={(e) => setActivation({ ...activation, hms_username: e.target.value.trim() })} /></Field>
             <Field label="eSSL device user ID (PIN)"><input className={inputCls} value={activation.biometric_pin} onChange={(e) => setActivation({ ...activation, biometric_pin: e.target.value.trim() })} /></Field>
@@ -323,10 +323,10 @@ function ApplicationDrawer({ app, canManage, canActivate, onClose, onChanged }: 
         </div>
       )}
       {password && (
-        <div className="border-t border-slate-200 pt-3 space-y-2">
-          <p className="text-sm text-slate-800">HMS login created. Temporary password — shown once, not stored anywhere; hand it to the employee and ask them to change it:</p>
+        <div className="border-t border-[#DDE2EC] pt-3 space-y-2">
+          <p className="text-sm text-gray-900 font-medium">HMS login created. Temporary password — shown once, not stored anywhere; hand it to the employee and ask them to change it:</p>
           <div className="flex items-center gap-2">
-            <code className="px-2 py-1 bg-slate-100 rounded text-sm">{password}</code>
+            <code className="px-2 py-1 bg-gray-100 rounded text-sm font-mono">{password}</code>
             <Btn variant="ghost" onClick={() => navigator.clipboard?.writeText(password).then(() => toast.success("Copied"))}><Copy className="w-3.5 h-3.5" /></Btn>
           </div>
           <Btn variant="primary" onClick={() => { setPassword(null); onChanged() }}>Done</Btn>

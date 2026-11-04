@@ -423,9 +423,6 @@ export default function UniversalRadiologyShell({
                 </button>
               </div>
             )}
-                </button>
-              </div>
-            )}
           </header>
         )}
 

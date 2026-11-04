@@ -17,7 +17,8 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
-const OCR_DIR = path.join(ROOT, "dpi-ocr-frontend")
+const HMS_DIR = path.join(ROOT, "frontend")
+const OCR_DIR = path.join(ROOT, "ocr-frontend")
 const OCR_PORT = 3000
 const OCR_LOG = path.join(ROOT, "keppler-ocr.log")
 const HMS_PORT = parseInt(process.env.PORT || "8443", 10)
@@ -211,7 +212,7 @@ const OCR_BACKEND_PORT = 7620
 if (await portInUse(OCR_BACKEND_PORT)) {
   log("ocr-backend", `already running on port ${OCR_BACKEND_PORT}`)
 } else {
-  const composePath = path.join(ROOT, "dpi-ocr-backend", "docker-compose.yml")
+  const composePath = path.join(ROOT, "ocr-backend", "docker-compose.yml")
   if (existsSync(composePath)) {
     try {
       const docker = isWin ? "docker.cmd" : "docker"
@@ -235,7 +236,7 @@ if (await portInUse(PG_PORT)) {
   run("postgres", PG_BIN, ["-D", PG_DIR, "-p", String(PG_PORT)], ROOT)
   log("postgres", `started on port ${PG_PORT}`)
 } else {
-  const composePath = path.join(ROOT, "dpi-ocr-backend", "docker-compose.yml")
+  const composePath = path.join(ROOT, "ocr-backend", "docker-compose.yml")
   if (existsSync(composePath)) {
     try {
       const docker = isWin ? "docker.cmd" : "docker"
@@ -256,13 +257,13 @@ if (await portInUse(PG_PORT)) {
 }
 
 // --- Enterprise HRMS Backend (port 8011) -------------------------------------
-// 8010 belongs to the keppler-backend gateway; vite.config.ts routes
+// 8010 belongs to the backend gateway; vite.config.ts routes
 // /hms-api/api/hr here and everything else under /hms-api to the gateway.
 const HRMS_PORT = 8011
 if (await portInUse(HRMS_PORT)) {
   log("hrms-backend", `already running on port ${HRMS_PORT}`)
 } else {
-  run("hrms-backend", "node", [path.join(ROOT, "server", "app.mjs")], ROOT)
+  run("hrms-backend", "node", [path.join(HMS_DIR, "server", "app.mjs")], HMS_DIR)
   log("hrms-backend", `started on port ${HRMS_PORT}`)
 }
 
@@ -275,11 +276,11 @@ if (await portInUse(HMS_PORT)) {
   )
   shutdown(1)
 }
-const hmsBin = viteBin(ROOT)
+const hmsBin = viteBin(HMS_DIR)
 run(
   "hms",
   hmsBin.cmd,
   [...hmsBin.args, "--host", "0.0.0.0"],
-  ROOT,
+  HMS_DIR,
   hmsBin.shell,
 )

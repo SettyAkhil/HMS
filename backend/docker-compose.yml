@@ -1,0 +1,369 @@
+name: keppler-backend
+
+# All values below come from ./.env (docker compose auto-loads a .env file in
+# the project directory for ${VAR} substitution) -- nothing here is a literal
+# secret. .env is gitignored; see .env.example for the shape it expects.
+x-backend-env: &backend-env
+  # Postgres already runs as its own container (testhospai_postgres) on the
+  # "testhospai_default" Docker network, only bound to 127.0.0.1 on the host
+  # (not reachable via host.docker.internal from inside a container) -- so
+  # every service here joins that same external network and connects by the
+  # container's own DNS alias instead (DATABASE_URL_DOCKER in .env, not the
+  # host-facing DATABASE_URL).
+  DATABASE_URL: "${DATABASE_URL_DOCKER}"
+  CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS}"
+  SESSION_COOKIE_NAME: "${SESSION_COOKIE_NAME}"
+  SESSION_TTL_HOURS: "${SESSION_TTL_HOURS}"
+  SESSION_PEPPER: "${SESSION_PEPPER}"
+  SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE}"
+  SESSION_COOKIE_SAMESITE: "${SESSION_COOKIE_SAMESITE}"
+  SEED_DEMO_USERS: "${SEED_DEMO_USERS}"
+  AI_PROVIDER: "${AI_PROVIDER}"
+  # Already-running local vLLM container (vllm-qwen-7b), reached via the host
+  # gateway the same way Postgres is (VLLM_BASE_URL_DOCKER, not the
+  # host-facing VLLM_BASE_URL).
+  VLLM_BASE_URL: "${VLLM_BASE_URL_DOCKER}"
+  VLLM_MODEL: "${VLLM_MODEL}"
+  VLLM_API_KEY: "${VLLM_API_KEY}"
+  CELERY_BROKER_URL: "redis://redis:6379/0"
+  REDIS_URL: "redis://redis:6379/0"
+  # Patient SMS / WhatsApp (core/sms.py, core/whatsapp.py,
+  # modules/messaging). All optional: unset, every send is logged as
+  # "not_configured" and the UI offers a manual hand-off instead. Twilio
+  # credentials can also be saved from the admin screen (stored encrypted
+  # with SETTINGS_ENCRYPTION_KEY), which takes priority over these.
+  TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID:-}"
+  TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN:-}"
+  TWILIO_WHATSAPP_FROM: "${TWILIO_WHATSAPP_FROM:-}"
+  TWILIO_SMS_FROM: "${TWILIO_SMS_FROM:-}"
+  TWILIO_MESSAGING_SERVICE_SID: "${TWILIO_MESSAGING_SERVICE_SID:-}"
+  WHATSAPP_DEFAULT_COUNTRY_CODE: "${WHATSAPP_DEFAULT_COUNTRY_CODE:-+91}"
+  SMS_DEFAULT_COUNTRY_CODE: "${SMS_DEFAULT_COUNTRY_CODE:-+91}"
+  WHATSAPP_TEMPLATE_SIDS: "${WHATSAPP_TEMPLATE_SIDS:-}"
+  PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+  PATIENT_DOCUMENT_LINK_TTL_HOURS: "${PATIENT_DOCUMENT_LINK_TTL_HOURS:-168}"
+  SETTINGS_ENCRYPTION_KEY: "${SETTINGS_ENCRYPTION_KEY:-}"
+
+x-backend-service: &backend-service
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment:
+    <<: *backend-env
+  depends_on:
+    - redis
+  networks:
+    - default
+    - testhospai_default
+  restart: unless-stopped
+
+networks:
+  default: {}
+  # The already-running Postgres container (testhospai_postgres) lives on
+  # this network, owned by a separate deployment -- joined, not created,
+  # here.
+  testhospai_default:
+    external: true
+  # The standalone Keppler AI OCR deployment's network (dpi-ocr--main/
+  # docker-compose.yml, run separately before this got merged in) -- joined
+  # so its still-standalone frontend container (localhost:3005, whose nginx
+  # proxies to a hardcoded "api:7620") keeps resolving once ocr-api below
+  # takes over that hostname.
+  dpi-ocr--main_default:
+    external: true
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  auth-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/auth/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8011"
+
+  patients-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/patients/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8012"
+    volumes:
+      - hospital_uploads:/app/uploads
+
+  appointments-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/appointments/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8013"
+
+  er-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/er/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8014"
+
+  billing-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/billing/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8015"
+
+  pharmacy-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/pharmacy/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8016"
+
+  hr-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/hr/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8017"
+
+  ai-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/ai/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8018"
+    volumes:
+      # Whisper is downloaded from Hugging Face on first use. Without a volume every
+      # container restart re-downloaded it before the worker could serve, so the first
+      # request after a restart -- often a doctor's prescription upload -- took ~2 min
+      # and blew past the frontend's 90s timeout.
+      - ai_model_cache:/home/appuser/.cache/huggingface
+
+  reporting-service:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/reporting/Dockerfile
+    environment:
+      <<: *backend-env
+      PORT: "8019"
+
+  # bulk_import (patients-service) is the only module that dispatches Celery
+  # tasks -- one worker process importing that service's app/task graph is
+  # enough; no other module schedules async work today.
+  celery-worker:
+    <<: *backend-service
+    build:
+      context: .
+      dockerfile: backend/services/patients/Dockerfile
+    command: ["celery", "-A", "services.patients.app.celery", "worker", "--loglevel=info"]
+    volumes:
+      - hospital_uploads:/app/uploads
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      # The monolith previously owned 8010; the frontend's API_BASE points
+      # here unchanged now that the gateway has taken over that port.
+      - "8010:8010"
+    depends_on:
+      - auth-service
+      - patients-service
+      - appointments-service
+      - er-service
+      - billing-service
+      - pharmacy-service
+      - hr-service
+      - hr-api
+      - ai-service
+      - reporting-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ── HR & Workforce (FastAPI, hr-api/) ───────────────────────────────────
+  # Replaces the Node HRMS server (frontend server/, port 8011) and the Flask
+  # hr-service's /api/hr routes. Its own database: no other service reads or
+  # writes it, and it reads theirs only through their APIs. hr-api connects
+  # as the non-superuser `hr_app` role so PostgreSQL row-level security on
+  # tenant_id applies; migrations run as the owner (app/bootstrap.py).
+  hr-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hr_owner
+      POSTGRES_PASSWORD: "${HR_OWNER_DB_PASSWORD}"
+      POSTGRES_DB: hospai_hr
+    volumes:
+      - hr_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hr_owner -d hospai_hr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  hr-api: &hr-api
+    build:
+      context: ./hr-api
+    environment: &hr-env
+      HR_DATABASE_URL: "postgresql+psycopg://hr_app:${HR_APP_DB_PASSWORD}@hr-postgres:5432/hospai_hr"
+      HR_DATABASE_OWNER_URL: "postgresql+psycopg://hr_owner:${HR_OWNER_DB_PASSWORD}@hr-postgres:5432/hospai_hr"
+      HR_APP_DB_PASSWORD: "${HR_APP_DB_PASSWORD}"
+      HR_SECRETS_KEY: "${HR_SECRETS_KEY}"
+      HR_AUTH_SERVICE_URL: "http://auth-service:8011"
+      SESSION_COOKIE_NAME: "${SESSION_COOKIE_NAME}"
+      REDIS_URL: "redis://redis:6379/2"
+      HR_TIMEZONE: "${HR_TIMEZONE:-Asia/Kolkata}"
+      HR_GATEWAY_URL: "http://gateway:8010"
+      HR_DOCUMENT_ROOT: "/data/hr-documents"
+    volumes:
+      # Private: employee documents are only ever served through hr-api's
+      # authorised download endpoint, never by the gateway or a static path.
+      - hr_documents:/data/hr-documents
+    depends_on:
+      hr-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      auth-service:
+        condition: service_started
+    restart: unless-stopped
+
+  hr-worker:
+    <<: *hr-api
+    command: ["celery", "-A", "app.worker", "worker", "--beat", "--loglevel=INFO", "--concurrency=2"]
+    depends_on:
+      - hr-api
+
+  # ── Keppler AI (dpi-ocr) Medical Document Intelligence Platform ──────────
+  # Merged in from its own standalone deployment (source: ocr-backend/ in
+  # the frontend repo, symlinked here as ./dpi-ocr). Kept on its own
+  # ocr-postgres/ocr-redis/ocr-qdrant rather than sharing auth-service's DB
+  # or the plain `redis` above -- different schema, different consumer
+  # (Celery OCR jobs + Qdrant-backed RAG), no reason to couple them.
+  # `image:` reuses the already-built dpi-ocr--main-api/-worker images;
+  # `build:` is there so a fresh clone can build them too.
+  ocr-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keppler
+      POSTGRES_PASSWORD: keppler
+      POSTGRES_DB: keppler
+    volumes:
+      - ocr_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keppler -d keppler"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ocr-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ocr-qdrant:
+    image: qdrant/qdrant:v1.12.4
+    restart: unless-stopped
+    volumes:
+      - ocr_qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' 2>/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ocr-api:
+    image: dpi-ocr--main-api:latest
+    build:
+      context: ./dpi-ocr
+    restart: unless-stopped
+    depends_on:
+      ocr-postgres:
+        condition: service_healthy
+      ocr-redis:
+        condition: service_healthy
+    ports:
+      - "7620:7620"
+    environment:
+      DATABASE_URL: postgresql+psycopg://keppler:keppler@ocr-postgres:5432/keppler
+      REDIS_URL: redis://ocr-redis:6379/0
+      CELERY_BROKER_URL: redis://ocr-redis:6379/0
+      CELERY_RESULT_BACKEND: redis://ocr-redis:6379/0
+      QDRANT_URL: http://ocr-qdrant:6333
+      # Same already-running local vLLM container the hospital services use.
+      VLLM_BASE_URL: http://host.docker.internal:8700/v1
+    volumes:
+      - ocr_uploads:/app/uploads
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "7620"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      default: {}
+      # Alias "api" so the standalone OCR frontend's nginx (proxy_pass
+      # http://api:7620, baked in at its image's build time) keeps resolving
+      # once the old standalone ocr-api container is retired.
+      dpi-ocr--main_default:
+        aliases:
+          - api
+
+  ocr-worker:
+    image: dpi-ocr--main-worker:latest
+    build:
+      context: ./dpi-ocr
+    restart: unless-stopped
+    depends_on:
+      ocr-postgres:
+        condition: service_healthy
+      ocr-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://keppler:keppler@ocr-postgres:5432/keppler
+      REDIS_URL: redis://ocr-redis:6379/0
+      CELERY_BROKER_URL: redis://ocr-redis:6379/0
+      CELERY_RESULT_BACKEND: redis://ocr-redis:6379/0
+      QDRANT_URL: http://ocr-qdrant:6333
+      VLLM_BASE_URL: http://host.docker.internal:8700/v1
+    volumes:
+      - ocr_uploads:/app/uploads
+    command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  ai_model_cache:
+  hr_postgres_data:
+  hr_documents:
+  ocr_postgres_data:
+  ocr_qdrant_data:
+  ocr_uploads:
+  # Shared between patients-service (handles the upload request) and
+  # celery-worker (processes it asynchronously) -- without this, bulk-import
+  # uploads land on whichever container wrote them and the worker's own
+  # ObjectStorage.retrieve() 500s with "could not be read from storage"
+  # since it's a separate container with no view of that file.
+  hospital_uploads:

@@ -6,16 +6,13 @@
 !**/.env.example
 dist
 **/dist
-archive
 pgdata
 scratch
-tests
+frontend/tests
 *.log
 *.pdf
 pharmacy_dashboard_current.txt
 temp_dash*
 temp_dashboard.txt
-Pharmacy Management System UI_UX
-keppler-backend
-dpi-ocr-backend
-hospital-backend
+backend
+ocr-backend

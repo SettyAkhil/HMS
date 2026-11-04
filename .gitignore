@@ -23,21 +23,25 @@ logs/
 /.plugins/
 /.opencode-skills/
 
-# Old reference-project zip snapshots -- historical clutter, not this
-# project's source; too large to belong in a public repo's permanent history.
-/archive/zips/
-
-# Raw Postgres data files from the torn-down local dev cluster -- binary DB
-# files must never be committed.
-/archive/legacy-er-backend/.pgdata/
 /pgdata/
 
-# Symlink to the backend project, target is a machine-local absolute path
-# (not portable across clones/machines).
-/hospital-backend
 /scratch/
-tests/reports/
+frontend/tests/reports/
 
+
+# Security & secrets protection
+*.pem
+*.key
+*.pfx
+*.crt
+*.dump
+*.sql
+*.cookie
+*cookies*.txt
+cj.txt
+/hospital-backend
+uploads/
+temp_uploads/
 
 # Production deployment (deploy/, ./deploy.sh): commit the examples, never the
 # real configuration or backups.

@@ -1,8 +1,8 @@
 # HospAI — Production Deployment
 
 Everything needed to run the hospital system is in this repository: the web app,
-the embedded Keppler OCR app, the backend (`keppler-backend/`), the OCR backend
-(`dpi-ocr-backend/`), the Node HRMS server (`server/`), and all databases.
+the embedded Keppler OCR app, the backend (`backend/`), the OCR backend
+(`ocr-backend/`), the Node HRMS server (`server/`), and all databases.
 One script builds and starts it.
 
 ---
@@ -173,5 +173,5 @@ application behaviour; they need a product decision before real patients use it.
 ## For developers
 
 Development is unchanged (`npm run dev`, see `AGENTS.md`). The backend's working copy
-lives outside this repo on the development machine; `keppler-backend/` here is the copy
+lives outside this repo on the development machine; `backend/` here is the copy
 that ships. Refresh it before a release with `scripts/sync-backend.sh`.

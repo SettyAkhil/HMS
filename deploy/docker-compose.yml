@@ -95,68 +95,68 @@ services:
   # auth-service creates/migrates the main database schema on start.
   auth-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/auth/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/auth/Dockerfile }
     environment: { <<: *backend-env, PORT: "8011" }
 
   patients-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/patients/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/patients/Dockerfile }
     environment: { <<: *backend-env, PORT: "8012" }
     volumes: [hospital_uploads:/app/uploads]
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started }, redis: { condition: service_started } }
 
   appointments-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/appointments/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/appointments/Dockerfile }
     environment: { <<: *backend-env, PORT: "8013" }
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   er-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/er/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/er/Dockerfile }
     environment: { <<: *backend-env, PORT: "8014" }
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   billing-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/billing/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/billing/Dockerfile }
     environment: { <<: *backend-env, PORT: "8015" }
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   pharmacy-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/pharmacy/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/pharmacy/Dockerfile }
     environment: { <<: *backend-env, PORT: "8016" }
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   hr-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/hr/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/hr/Dockerfile }
     environment: { <<: *backend-env, PORT: "8017" }
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   ai-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/ai/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/ai/Dockerfile }
     environment: { <<: *backend-env, PORT: "8018" }
     volumes: [ai_model_cache:/home/appuser/.cache/huggingface]
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   reporting-service:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/reporting/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/reporting/Dockerfile }
     environment: { <<: *backend-env, PORT: "8019" }
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started } }
 
   celery-worker:
     <<: [*backend-service, *logging]
-    build: { context: ../keppler-backend, dockerfile: backend/services/patients/Dockerfile }
+    build: { context: ../backend, dockerfile: backend/services/patients/Dockerfile }
     command: ["celery", "-A", "services.patients.app.celery", "worker", "--loglevel=info"]
     volumes: [hospital_uploads:/app/uploads]
     depends_on: { postgres: { condition: service_healthy }, auth-service: { condition: service_started }, redis: { condition: service_started } }
 
   gateway:
-    build: { context: ../keppler-backend, dockerfile: gateway/Dockerfile }
+    build: { context: ../backend, dockerfile: gateway/Dockerfile }
     restart: unless-stopped
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
@@ -189,7 +189,7 @@ services:
     <<: *logging
 
   hr-api: &hr-api
-    build: { context: ../keppler-backend/hr-api }
+    build: { context: ../backend/hr-api }
     restart: unless-stopped
     environment: &hr-env
       HR_DATABASE_URL: "postgresql+psycopg://hr_app:${HR_APP_DB_PASSWORD}@hr-postgres:5432/hospai_hr"
@@ -249,7 +249,7 @@ services:
   # One-shot: creates/updates the OCR database schema before the API starts
   # (a fresh database otherwise answers 500 "relation users does not exist").
   ocr-migrate:
-    build: { context: ../dpi-ocr-backend }
+    build: { context: ../ocr-backend }
     environment: &ocr-env
       DATABASE_URL: "postgresql+psycopg://keppler:${OCR_DB_PASSWORD}@ocr-postgres:5432/keppler"
       REDIS_URL: "redis://ocr-redis:6379/0"
@@ -263,7 +263,7 @@ services:
     restart: "no"
 
   ocr-api:
-    build: { context: ../dpi-ocr-backend }
+    build: { context: ../ocr-backend }
     restart: unless-stopped
     environment: *ocr-env
     volumes: [ocr_uploads:/app/uploads]
@@ -276,7 +276,7 @@ services:
     <<: *logging
 
   ocr-worker:
-    build: { context: ../dpi-ocr-backend }
+    build: { context: ../ocr-backend }
     restart: unless-stopped
     environment: *ocr-env
     volumes: [ocr_uploads:/app/uploads]

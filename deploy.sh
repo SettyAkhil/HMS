@@ -28,8 +28,8 @@ check_prereqs() {
   command -v docker >/dev/null 2>&1 || die "Docker is not installed. Install Docker Engine: https://docs.docker.com/engine/install/"
   docker info >/dev/null 2>&1 || die "Docker is not running, or this user cannot use it (try: sudo usermod -aG docker \$USER, then log in again)."
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is missing (the 'docker compose' plugin)."
-  [ -d "$ROOT/keppler-backend" ] || die "keppler-backend/ is missing from this folder -- the repository is incomplete."
-  [ -e "$ROOT/keppler-backend/dpi-ocr" ] || ln -s ../dpi-ocr-backend "$ROOT/keppler-backend/dpi-ocr" 2>/dev/null || true
+  [ -d "$ROOT/backend" ] || die "backend/ is missing from this folder -- the repository is incomplete."
+  [ -e "$ROOT/backend/dpi-ocr" ] || ln -s ../ocr-backend "$ROOT/backend/dpi-ocr" 2>/dev/null || true
 }
 
 secret() {   # 32 random bytes, URL-safe base64 (also a valid Fernet key)

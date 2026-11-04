@@ -1,9 +1,0 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="logoTitle logoDesc">
-  <title id="logoTitle">HospAI Icon</title>
-  <desc id="logoDesc">HospAI minimalist healthcare mark</desc>
-  <rect x="4" y="4" width="56" height="56" rx="16" fill="#0F4F7A"/>
-  <rect x="4.5" y="4.5" width="55" height="55" rx="15.5" stroke="#2A6C97"/>
-  <path d="M20 18V46M44 18V46" stroke="#F3FBFF" stroke-width="5.5" stroke-linecap="round"/>
-  <path d="M20 32H27L31.2 26L35.2 38L38.3 32H44" stroke="#86F0D1" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="44" cy="18.5" r="2.6" fill="#86F0D1"/>
-</svg>
